@@ -32,6 +32,7 @@ const IS_TELEGRAM_ANDROID = detectTelegramAndroid();
 
 type TelegramLinkApi = {
   openTelegramLink?: (url: string) => void;
+  openLink?: (url: string) => void;
 };
 
 function isTelegramUrl(value: string): boolean {
@@ -47,8 +48,42 @@ function isTelegramUrl(value: string): boolean {
   }
 }
 
+// @reown/appkit-controllers 1.8.23 CoreHelperUtil.formatNativeUrl()
+// double-encodes the WalletConnect URI on Telegram Android, producing
+// `<wallet-universal-link>/wc?uri=wc%253A...`. The wallet then receives a
+// still-encoded `wc%3A...` value it cannot parse, so it opens without any
+// Connect request. Repair only that case: HTTPS launch URL (never tg:/t.me)
+// whose `uri` param decodes once more into a valid `wc:` URI.
+function repairDoubleEncodedWcUri(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || isTelegramUrl(value)) return null;
+
+  const uriParam = url.searchParams.get("uri"); // already decoded once
+  if (!uriParam || uriParam.startsWith("wc:")) return null;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(uriParam);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith("wc:")) return null;
+
+  // Single-encoding via searchParams.set() restores a valid WC URI while
+  // leaving every other query parameter byte-identical.
+  url.searchParams.set("uri", decoded);
+  return url.toString();
+}
+
 // Wallet, WalletConnect and universal links always keep the native
-// window.open path — unchanged arguments, no logging of URIs.
+// window.open path — unchanged arguments, no logging of URIs. On Telegram
+// Android, double-encoded WC universal links are repaired and handed to
+// Telegram.WebApp.openLink() so Android resolves the HTTPS App Link.
 function preserveNativeWalletLaunches(): void {
   if (typeof window === "undefined") return;
 
@@ -66,6 +101,27 @@ function preserveNativeWalletLaunches(): void {
       } catch (error) {
         console.error("[appkit-runtime] failed to open telegram link", error);
       }
+    }
+
+    const repaired = repairDoubleEncodedWcUri(url);
+    if (repaired) {
+      // Redacted diagnostics: schemes/flags only, never the WC URI.
+      console.debug("[appkit-runtime] wallet launch", {
+        originalScheme: new URL(url).protocol,
+        hadWcUriParam: true,
+        wasDoubleEncoded: true,
+        correctedScheme: new URL(repaired).protocol,
+      });
+      if (webApp?.openLink) {
+        try {
+          webApp.openLink(repaired);
+          console.debug("[appkit-runtime] opened via Telegram.WebApp.openLink");
+          return null;
+        } catch (error) {
+          console.error("[appkit-runtime] openLink failed, using native", error);
+        }
+      }
+      return nativeOpen(repaired, args[1], args[2]);
     }
 
     return nativeOpen(...args);
