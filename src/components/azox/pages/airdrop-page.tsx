@@ -160,7 +160,11 @@ export function AirdropPage() {
   const [confetti, setConfetti] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isAutoStarting, setIsAutoStarting] = useState(false);
+  // On-chain registration succeeded but the backend write did not — the tx is
+  // still valid, we only need to retry the data sync (never the payment).
+  const [syncFailed, setSyncFailed] = useState(false);
+  const [lastTxHash, setLastTxHash] = useState<`0x${string}` | null>(null);
+
   const [dbRegistration, setDbRegistration] =
     useState<WalletRegistration | null>(null);
 
