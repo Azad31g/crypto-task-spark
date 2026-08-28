@@ -19,6 +19,7 @@ import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_BOT_URL } from "./wagmi-config";
+import { isTelegramMiniApp } from "./telegram";
 
 // The origin Telegram actually launched the Mini App from. This module is
 // browser-only, so window.location.origin is always the real serving origin —
@@ -27,17 +28,10 @@ import { networks, projectId, APP_URL, TELEGRAM_BOT_URL } from "./wagmi-config";
 const RUNTIME_APP_URL =
   typeof window !== "undefined" ? window.location.origin : APP_URL;
 
-function isTelegram() {
-  if (typeof window === "undefined") return false;
-  const w = window as unknown as Record<string, unknown>;
-  return (
-    Boolean(w["Telegram"]) ||
-    Boolean(w["TelegramWebviewProxy"]) ||
-    Boolean(w["TelegramWebviewProxyProto"])
-  );
-}
-
-const IS_TELEGRAM = isTelegram();
+// telegram-web-app.js is loaded on every page, so `window.Telegram` exists in
+// ordinary browsers too. Only a real Mini App session carries initData / a
+// user object (and a known platform), so detect on those instead.
+const IS_TELEGRAM = isTelegramMiniApp();
 
 if (typeof window !== "undefined") {
   const webApp = (
