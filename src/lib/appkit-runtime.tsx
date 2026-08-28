@@ -7,26 +7,28 @@
 // only exports chain metadata plus a connector-free, read-only config used
 // during SSR — it must never create an adapter.
 //
-// Telegram handling is deliberately limited to genuine Telegram links.
-// Wallet and WalletConnect URLs always retain AppKit's native window.open path.
+// AppKit/WalletConnect stays fully responsible for launching wallets: no URL
+// is rewritten, mapped, or routed through Telegram APIs. Only genuine
+// Telegram links are intercepted.
 import type { ReactNode } from "react";
 import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
-import { networks, projectId, APP_URL, TELEGRAM_BOT_URL } from "./wagmi-config";
+import { networks, projectId, APP_URL } from "./wagmi-config";
 import { isTelegramMiniApp } from "./telegram";
 
-// The origin Telegram actually launched the Mini App from. This module is
-// browser-only, so window.location.origin is always the real serving origin —
-// wallets validate metadata.url against it, so never hardcode a guess. The
-// build-time APP_URL stays as the fallback only.
+// The origin actually serving the app. Wallets validate metadata.url against
+// it, so never hardcode a guess; APP_URL is only an SSR-time fallback.
 const RUNTIME_APP_URL =
   typeof window !== "undefined" ? window.location.origin : APP_URL;
 
-// telegram-web-app.js is loaded on every page, so `window.Telegram` exists in
-// ordinary browsers too. Only a real Mini App session carries initData / a
-// user object (and a known platform), so detect on those instead.
-const IS_TELEGRAM = isTelegramMiniApp();
+function detectTelegramAndroid(): boolean {
+  if (typeof window === "undefined") return false;
+  if (!isTelegramMiniApp()) return false;
+  return navigator.userAgent.toLowerCase().includes("android");
+}
+
+const IS_TELEGRAM_ANDROID = detectTelegramAndroid();
 
 type TelegramLinkApi = {
   openTelegramLink?: (url: string) => void;
@@ -45,6 +47,8 @@ function isTelegramUrl(value: string): boolean {
   }
 }
 
+// Wallet, WalletConnect and universal links always keep the native
+// window.open path — unchanged arguments, no logging of URIs.
 function preserveNativeWalletLaunches(): void {
   if (typeof window === "undefined") return;
 
@@ -70,25 +74,15 @@ function preserveNativeWalletLaunches(): void {
 
 preserveNativeWalletLaunches();
 
-if (typeof window !== "undefined") {
-  const webApp = (
-    window as unknown as { Telegram?: { WebApp?: Record<string, unknown> } }
-  ).Telegram?.WebApp;
-  console.info("[appkit-runtime] environment", {
-    isTelegram: IS_TELEGRAM,
-    platform: webApp?.["platform"],
-    href: window.location.href,
-  });
-}
-
 // Module scope, exactly once — not inside a React component or useEffect.
 // Explicit localStorage persistence survives the Telegram Android cold
 // relaunch after wallet approval; it is what reconnectOnMount reads on the
-// way back in.
+// way back in. cookieStorage is deliberately NOT used (it needs the SSR
+// cookieToInitialState handshake an ssr:false adapter cannot provide).
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
-  ssr: true,
+  ssr: false,
   storage: createStorage({
     storage:
       typeof window !== "undefined" && window.localStorage
@@ -110,29 +104,17 @@ createAppKit({
     // Must match the origin actually serving the app (verified at runtime).
     url: RUNTIME_APP_URL,
     icons: [`${RUNTIME_APP_URL}/favicon.png`],
-    // WalletConnect honours metadata.redirect at runtime: it tells the wallet
-    // where to send the user back after approval. Inside Telegram that is the
-    // real bot link; everywhere else it is the serving origin. Missing from
-    // AppKit's Metadata type in this version, hence the cast.
-    ...({
-      redirect: {
-        native: "",
-        universal: IS_TELEGRAM ? TELEGRAM_BOT_URL : RUNTIME_APP_URL,
-      },
-    } as Record<string, unknown>),
   },
-  // Prefer each wallet's official HTTPS universal link when AppKit has one.
-  // AppKit remains responsible for every wallet URL and native-link fallback.
-  experimental_preferUniversalLinks: true,
+  // Telegram's Android WebView cannot resolve wallet custom schemes, so ask
+  // AppKit to prefer each wallet's registry HTTPS universal link there only.
+  // Normal browsers keep AppKit's default behaviour untouched.
+  experimental_preferUniversalLinks: IS_TELEGRAM_ANDROID,
   features: { analytics: false },
 });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
-    <WagmiProvider
-      config={wagmiAdapter.wagmiConfig}
-      reconnectOnMount={!IS_TELEGRAM}
-    >
+    <WagmiProvider config={wagmiAdapter.wagmiConfig} reconnectOnMount>
       {children}
     </WagmiProvider>
   );
