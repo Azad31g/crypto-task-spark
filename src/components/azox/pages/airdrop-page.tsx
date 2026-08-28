@@ -368,19 +368,29 @@ export function AirdropPage() {
         return;
       }
       console.info("[airdrop] REGISTRATION_VERIFIED");
+      setLastTxHash(hash);
+      setSyncFailed(false);
       const telegramId = currentTelegramId();
       if (telegramId) {
-        const saved = await saveWalletRegistration({
-          telegramId,
-          walletAddress: address,
-          chainId: robinhoodTestnet.id,
-          txHash: hash,
-        });
+        // Backend is a data layer only: a failure here NEVER invalidates the
+        // confirmed on-chain registration and never re-requests payment.
+        let saved: WalletRegistration | null = null;
+        try {
+          saved = await saveWalletRegistration({
+            telegramId,
+            walletAddress: address,
+            chainId: robinhoodTestnet.id,
+            txHash: hash,
+          });
+        } catch (syncError) {
+          console.error("[airdrop] SUPABASE_SAVE_ERROR", syncError);
+        }
         console.info("[airdrop] SUPABASE_SAVE_RESULT", {
           telegramId,
           saved: Boolean(saved),
         });
         if (saved) setDbRegistration(saved);
+        else setSyncFailed(true);
       } else {
         console.info("[airdrop] SUPABASE_SAVE_SKIPPED", {
           reason: "no telegram id",
@@ -397,7 +407,7 @@ export function AirdropPage() {
       console.error(`[airdrop] ${type}`, error);
     } finally {
       setIsConfirming(false);
-      setIsAutoStarting(false);
+
       registrationInFlightRef.current = false;
     }
   };
