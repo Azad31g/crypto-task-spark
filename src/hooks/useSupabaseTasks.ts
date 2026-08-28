@@ -75,7 +75,7 @@ export function useSupabaseTasks() {
 
       try {
         const { data, error: err } = await Promise.race([
-          supabase
+          (supabase as any)
             .from("tasks")
             .select("id, platform, title, url, points, status, sort_order, task_reward")
             .eq("status", "active")
