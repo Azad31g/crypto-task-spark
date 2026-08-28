@@ -7,10 +7,17 @@
 // only exports chain metadata plus a connector-free, read-only config used
 // during SSR — it must never create an adapter.
 import type { ReactNode } from "react";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, createStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
+
+// The origin Telegram actually launched the Mini App from. This module is
+// browser-only, so window.location.origin is always the real serving origin —
+// wallets validate metadata.url against it, so never hardcode a guess. The
+// build-time APP_URL stays as the fallback only.
+const RUNTIME_APP_URL =
+  typeof window !== "undefined" ? window.location.origin : APP_URL;
 
 // --- Telegram Mini App support -------------------------------------------
 // ONLY genuine Telegram links (t.me / tg://) are routed through the Telegram
