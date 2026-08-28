@@ -26,7 +26,7 @@ import {
   REGISTRATION_FEE,
 } from "@/lib/contracts";
 import { robinhoodTestnet } from "@/lib/wagmi-config";
-import { getWebApp, isTelegramMiniApp } from "@/lib/telegram";
+
 
 
 const KEYS = {
@@ -575,7 +575,7 @@ export function AirdropPage() {
               Robinhood Chain Testnet
             </span>
             <div className="flex justify-center">
-              <WalletConnectAction />
+              <AppKitButton />
             </div>
 
             <p className="text-center text-[11px] text-muted-foreground">
@@ -619,7 +619,7 @@ export function AirdropPage() {
                   {address ? shorten(address) : ""}
                 </code>
               </div>
-              <AccountAction />
+              <AppKitButton balance="hide" />
             </div>
 
             <p className="text-xs text-muted-foreground">
