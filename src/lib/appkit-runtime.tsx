@@ -125,7 +125,15 @@ createAppKit({
       redirect: { native: "", universal: TELEGRAM_APP_URL || RUNTIME_APP_URL },
     } as Record<string, unknown>),
   },
+  // Telegram's Android WebView cannot resolve wallet custom schemes
+  // (metamask://, trust:// …) and fails with net::ERR_UNKNOWN_URL_SCHEME.
+  // AppKit's built-in option makes it open each selected wallet's HTTPS
+  // universal link (registry `link_mode`) whenever one exists — for the whole
+  // WalletConnect wallet list, not just one wallet. Normal browsers keep the
+  // default native-scheme behaviour.
+  experimental_preferUniversalLinks: IS_TELEGRAM_ANDROID,
   features: { analytics: false },
+
 });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
