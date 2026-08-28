@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
-import { networks, projectId, APP_URL } from "./wagmi-config";
+import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 import { isTelegramMiniApp } from "./telegram";
 
 // The origin actually serving the app. Wallets validate metadata.url against
