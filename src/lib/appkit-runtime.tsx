@@ -28,17 +28,56 @@ type TgWebApp = {
   openTelegramLink?: (url: string) => void;
 };
 
+function isTelegramAndroid() {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as Record<string, unknown>;
+  const inTelegram =
+    Boolean(w["Telegram"]) ||
+    Boolean(w["TelegramWebviewProxy"]) ||
+    Boolean(w["TelegramWebviewProxyProto"]);
+  const ua = navigator.userAgent.toLowerCase();
+  return inTelegram && ua.includes("android");
+}
+
+const IS_TELEGRAM_ANDROID = isTelegramAndroid();
+
+// Best-effort, non-sensitive: the wallet AppKit persisted as the deep-link
+// choice. Never contains the WalletConnect URI.
+function readSelectedWalletName(): string | undefined {
+  try {
+    const raw = window.localStorage?.getItem("WALLETCONNECT_DEEPLINK_CHOICE");
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { name?: string };
+    return parsed?.name;
+  } catch {
+    return undefined;
+  }
+}
+
+
 function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
   const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
     ?.WebApp;
-  if (!tg?.openTelegramLink) return;
   const nativeOpen = window.open.bind(window);
   window.open = ((...args: Parameters<typeof window.open>) => {
     const href = String(args[0] ?? "");
-    if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
+    // Diagnostics only — never log the WalletConnect URI itself.
+    const scheme = href.split(":")[0]?.slice(0, 24) ?? "";
+    const isHttps = href.startsWith("https://") || href.startsWith("http://");
+    console.info("[wallet-launch]", {
+      wallet: readSelectedWalletName(),
+      scheme,
+      launch: isHttps ? "universal" : "native",
+      telegramAndroid: IS_TELEGRAM_ANDROID,
+    });
+
+    if (
+      tg?.openTelegramLink &&
+      (href.startsWith("https://t.me") || href.startsWith("tg://"))
+    ) {
       try {
-        tg.openTelegramLink!(href);
+        tg.openTelegramLink(href);
         return null;
       } catch {
         return nativeOpen(...args);
@@ -47,6 +86,7 @@ function patchTelegramWindowOpen() {
     return nativeOpen(...args);
   }) as typeof window.open;
 }
+
 
 patchTelegramWindowOpen();
 
@@ -101,7 +141,15 @@ createAppKit({
       redirect: { native: "", universal: TELEGRAM_APP_URL || RUNTIME_APP_URL },
     } as Record<string, unknown>),
   },
+  // Telegram's Android WebView cannot resolve wallet custom schemes
+  // (metamask://, trust:// …) and fails with net::ERR_UNKNOWN_URL_SCHEME.
+  // AppKit's built-in option makes it open each selected wallet's HTTPS
+  // universal link (registry `link_mode`) whenever one exists — for the whole
+  // WalletConnect wallet list, not just one wallet. Normal browsers keep the
+  // default native-scheme behaviour.
+  experimental_preferUniversalLinks: IS_TELEGRAM_ANDROID,
   features: { analytics: false },
+
 });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
