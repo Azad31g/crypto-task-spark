@@ -160,12 +160,12 @@ export function AirdropPage() {
   const [confetti, setConfetti] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isAutoStarting, setIsAutoStarting] = useState(false);
   const [dbRegistration, setDbRegistration] =
     useState<WalletRegistration | null>(null);
-  const dbRegistrationRef = useRef<WalletRegistration | null>(null);
-  dbRegistrationRef.current = dbRegistration;
 
-  // Registration is permanent per telegram_id — check once on load.
+  // Background read only — it never gates connecting or paying.
+
   useEffect(() => {
     const telegramId = currentTelegramId();
     if (!telegramId) return;
