@@ -242,18 +242,21 @@ export function AirdropPage() {
   const isRegistered = address
     ? isEligible === true
     : dbRegistration !== null;
-  const busy = isTxPending || isConfirming || isAutoStarting;
+  const busy = isTxPending || isConfirming;
 
-  const handleRegister = async (auto = false) => {
+  // MANUAL ONLY: never called from an effect. Connecting a wallet must never
+  // send a transaction — the user presses "Register Now" explicitly.
+  const handleRegister = async () => {
     if (registrationInFlightRef.current) return;
     registrationInFlightRef.current = true;
     resetTx();
     setFlowError(null);
     console.info("[airdrop] REGISTRATION_TRIGGERED", {
-      auto,
+      manual: true,
       address,
       chainId,
     });
+
 
     try {
       if (!isConnected || !address) {
