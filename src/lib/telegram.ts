@@ -49,7 +49,8 @@ export function isTelegram(): boolean {
 // Strict runtime detection of a real Telegram Mini App/WebView.
 // telegram-web-app.js defines window.Telegram in ANY browser, so presence of
 // the object alone is a false positive. A genuine Mini App session always has
-// initData / an initDataUnsafe user, or a concrete non-"unknown" platform.
+// the Telegram webview bridge, Telegram launch parameters, initData, or a
+// concrete non-"unknown" platform.
 export function isTelegramMiniApp(): boolean {
   if (typeof window === "undefined") return false;
   const bridgeWindow = window as TelegramBridgeWindow;
@@ -60,39 +61,7 @@ export function isTelegramMiniApp(): boolean {
     return true;
   }
 
-  // The official Telegram SDK reads launch parameters from the URL once and
-  // persists them under this sessionStorage key. After a wallet round-trip the
-  // URL may no longer contain tgWebApp* parameters, while this remains the
-  // authoritative signal that the page belongs to the same Mini App session.
-  try {
-    const storedParams = window.sessionStorage.getItem("__telegram__initParams");
-    if (storedParams) {
-      const parsed = JSON.parse(storedParams) as Record<string, unknown>;
-      if (
-        parsed["tgWebAppData"] ||
-        parsed["tgWebAppVersion"] ||
-        parsed["tgWebAppPlatform"]
-      ) {
-        return true;
-      }
-    }
-  } catch {
-    // Storage can be unavailable in restricted WebViews; continue with the
-    // SDK's in-memory launch parameters below.
-  }
-
-  const sdkParams = bridgeWindow.Telegram?.WebView?.initParams;
-  if (
-    sdkParams?.["tgWebAppData"] ||
-    sdkParams?.["tgWebAppVersion"] ||
-    sdkParams?.["tgWebAppPlatform"]
-  ) {
-    return true;
-  }
-
-  // Telegram injects these launch parameters into the URL before its SDK has
-  // necessarily finished loading. Checking them keeps the first client render
-  // from briefly exposing wallet actions inside the Android WebView.
+  // Launch parameters the Telegram client puts into the page URL.
   const launchParams = new URLSearchParams(
     `${window.location.search.replace(/^\?/, "")}&${window.location.hash.replace(/^#/, "")}`,
   );
@@ -113,6 +82,7 @@ export function isTelegramMiniApp(): boolean {
   const platform = webApp.platform;
   return Boolean(platform && platform !== "unknown");
 }
+
 
 export function getTelegramUser(): TelegramUser | null {
   if (typeof window === "undefined") return null;
