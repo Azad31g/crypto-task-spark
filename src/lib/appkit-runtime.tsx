@@ -63,15 +63,23 @@ if (typeof window !== "undefined") {
 }
 
 // Module scope, exactly once — not inside a React component or useEffect.
-// This module is browser-only (loaded behind <ClientOnly>), so wagmi's default
-// localStorage persister is the supported configuration: it is what
-// reconnectOnMount reads when Telegram resumes the Mini App after the wallet
-// approval. cookieStorage would require the full cookieToInitialState SSR
-// hydration handshake, which a client-only adapter cannot provide.
+// This module is browser-only (loaded behind <ClientOnly>), so persistence is
+// explicit localStorage: it survives the Telegram Android cold-relaunch after
+// wallet approval and is what reconnectOnMount reads on the way back in.
+// cookieStorage is NOT used: it would require the cookieToInitialState SSR
+// hydration handshake, which a client-only (ssr:false) adapter cannot provide,
+// and Telegram's in-app webview does not reliably persist cookies either.
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
   ssr: false,
+  storage: createStorage({
+    key: "azox.wagmi",
+    storage:
+      typeof window !== "undefined" && window.localStorage
+        ? window.localStorage
+        : undefined,
+  }),
 });
 
 createAppKit({
