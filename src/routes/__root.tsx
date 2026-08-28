@@ -1,8 +1,9 @@
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
-  createRootRouteWithContext,
+  createRootRoute,
   useRouter,
   HeadContent,
   Scripts,
@@ -11,6 +12,47 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { AzoxProvider } from "../components/azox/app-provider";
+import { TopBar } from "../components/azox/top-bar";
+import { BottomNav } from "../components/azox/bottom-nav";
+import { BoxAlertBanner } from "../components/azox/box-alert-banner";
+import { Toaster } from "../components/ui/sonner";
+import { WagmiProvider } from "wagmi";
+import { ClientOnly } from "@tanstack/react-router";
+import { getSsrWagmiConfig } from "../lib/wagmi-config";
+import { lazy, Suspense } from "react";
+
+
+// Browser-only AppKit + WagmiAdapter provider (see appkit-runtime.tsx).
+// The dynamic chunk can fail transiently (dev re-optimization, flaky network).
+// Retry a few times, and if it still fails, degrade to the read-only wagmi
+// config so the whole app doesn't go blank.
+async function loadAppKitProvider() {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const m = await import("../lib/appkit-runtime");
+      return { default: m.AppKitWagmiProvider };
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+    }
+  }
+  console.error("AppKit runtime failed to load", lastError);
+  return {
+    default: ({ children }: { children: ReactNode }) => (
+      <WagmiProvider config={getSsrWagmiConfig()}>{children}</WagmiProvider>
+    ),
+  };
+}
+
+const AppKitWagmiProvider = lazy(loadAppKitProvider);
+
+
+
+const queryClient = new QueryClient();
+
+
 
 function NotFoundComponent() {
   return (
@@ -72,28 +114,40 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+      },
+      { title: "AZOX — Tap to Earn Mini App" },
+      {
+        name: "description",
+        content:
+          "AZOX gaming mini app: tap to earn points, play mini games and climb 7 global ranks.",
+      },
+      { name: "author", content: "Guardex Quant LABs" },
+      { name: "theme-color", content: "#000000" },
+      { property: "og:title", content: "AZOX — Tap to Earn Mini App" },
+      {
+        property: "og:description",
+        content: "Tap to earn AZOX points and climb 7 global ranks.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.png", type: "image/png" },
     ],
   }),
+
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -104,6 +158,7 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
+        <script src="https://telegram.org/js/telegram-web-app.js" />
         <HeadContent />
       </head>
       <body>
@@ -115,12 +170,44 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
-
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <ClientOnly
+        fallback={
+          <WagmiProvider config={getSsrWagmiConfig()}>
+            <AppContent />
+          </WagmiProvider>
+        }
+      >
+        <Suspense
+          fallback={
+            <WagmiProvider config={getSsrWagmiConfig()}>
+              <AppContent />
+            </WagmiProvider>
+          }
+        >
+          <AppKitWagmiProvider>
+            <AppContent />
+          </AppKitWagmiProvider>
+        </Suspense>
+      </ClientOnly>
     </QueryClientProvider>
+  );
+}
+
+function AppContent() {
+  return (
+    <AzoxProvider>
+      <div className="min-h-screen bg-background text-foreground">
+        <BoxAlertBanner />
+        <TopBar />
+        <main className="mx-auto w-full max-w-md px-4 pb-28 pt-4">
+          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+          <Outlet />
+        </main>
+        <BottomNav />
+        <Toaster />
+      </div>
+    </AzoxProvider>
   );
 }
