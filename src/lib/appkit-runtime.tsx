@@ -7,13 +7,8 @@
 // only exports chain metadata plus a connector-free, read-only config used
 // during SSR — it must never create an adapter.
 //
-// NO window.open monkey-patch lives here. @reown/appkit 1.8.x has first-class
-// Telegram Mini App support: CoreHelperUtil.isTelegram() forces the `_blank`
-// open target, double-encodes the WalletConnect URI for Telegram Android, and
-// `experimental_preferUniversalLinks` makes it launch each wallet's registry
-// HTTPS universal link instead of a custom scheme. Navigating the Telegram
-// WebView to metamask:// / trust:// / okx:// is exactly what produced
-// net::ERR_UNKNOWN_URL_SCHEME, so wallet launching is left entirely to AppKit.
+// Telegram handling is deliberately limited to genuine Telegram links.
+// Wallet and WalletConnect URLs always retain AppKit's native window.open path.
 import type { ReactNode } from "react";
 import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -32,6 +27,48 @@ const RUNTIME_APP_URL =
 // ordinary browsers too. Only a real Mini App session carries initData / a
 // user object (and a known platform), so detect on those instead.
 const IS_TELEGRAM = isTelegramMiniApp();
+
+type TelegramLinkApi = {
+  openTelegramLink?: (url: string) => void;
+};
+
+function isTelegramUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "tg:" ||
+      (url.protocol === "https:" &&
+        (url.hostname === "t.me" || url.hostname.endsWith(".t.me")))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function preserveNativeWalletLaunches(): void {
+  if (typeof window === "undefined") return;
+
+  const nativeOpen = window.open.bind(window);
+  window.open = ((...args: Parameters<typeof window.open>) => {
+    const url = String(args[0] ?? "");
+    const webApp = (
+      window as unknown as { Telegram?: { WebApp?: TelegramLinkApi } }
+    ).Telegram?.WebApp;
+
+    if (webApp?.openTelegramLink && isTelegramUrl(url)) {
+      try {
+        webApp.openTelegramLink(url);
+        return null;
+      } catch {
+        return nativeOpen(...args);
+      }
+    }
+
+    return nativeOpen(...args);
+  }) as typeof window.open;
+}
+
+preserveNativeWalletLaunches();
 
 if (typeof window !== "undefined") {
   const webApp = (
