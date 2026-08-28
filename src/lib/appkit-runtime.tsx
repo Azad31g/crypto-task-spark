@@ -20,11 +20,17 @@ const RUNTIME_APP_URL =
   typeof window !== "undefined" ? window.location.origin : APP_URL;
 
 // --- Telegram Mini App support -------------------------------------------
-// ONLY genuine Telegram links (t.me / tg://) are routed through the Telegram
-// WebApp API. Every other URL — including all WalletConnect deep links and
-// wallet universal links — keeps the original native window.open, so
-// AppKit/WalletConnect stays fully in charge of launching wallets.
+// Restored from the pre-backend baseline (commit 36b9149), which is the last
+// state where wallet launch worked inside Telegram:
+//   * t.me / tg://      -> Telegram.WebApp.openTelegramLink
+//   * any other http(s) -> Telegram.WebApp.openLink  (leaves the WebView, so a
+//                          wallet HTTPS universal link reaches the wallet app)
+//   * custom schemes    -> location.href fallback (openLink only accepts
+//                          http/https, so it must never receive metamask://)
+// Outside Telegram nothing is intercepted: native window.open is used, which
+// keeps AppKit/WalletConnect fully in charge in normal browsers.
 type TgWebApp = {
+  openLink?: (url: string, opts?: { try_instant_view?: boolean }) => void;
   openTelegramLink?: (url: string) => void;
 };
 
@@ -54,41 +60,51 @@ function readSelectedWalletName(): string | undefined {
   }
 }
 
-
 function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
   const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
     ?.WebApp;
   const nativeOpen = window.open.bind(window);
+  // Not inside Telegram: keep the browser's native behaviour untouched.
+  if (!tg) return;
+
   window.open = ((...args: Parameters<typeof window.open>) => {
     const href = String(args[0] ?? "");
+    const isHttp = href.startsWith("https://") || href.startsWith("http://");
+    const isTelegramLink = href.startsWith("https://t.me") || href.startsWith("tg://");
     // Diagnostics only — never log the WalletConnect URI itself.
-    const scheme = href.split(":")[0]?.slice(0, 24) ?? "";
-    const isHttps = href.startsWith("https://") || href.startsWith("http://");
     console.info("[wallet-launch]", {
       wallet: readSelectedWalletName(),
-      scheme,
-      launch: isHttps ? "universal" : "native",
+      scheme: href.split(":")[0]?.slice(0, 24) ?? "",
+      launch: isTelegramLink ? "telegram" : isHttp ? "universal" : "native",
       telegramAndroid: IS_TELEGRAM_ANDROID,
     });
 
-    if (
-      tg?.openTelegramLink &&
-      (href.startsWith("https://t.me") || href.startsWith("tg://"))
-    ) {
-      try {
+    try {
+      if (isTelegramLink && tg.openTelegramLink) {
         tg.openTelegramLink(href);
         return null;
-      } catch {
-        return nativeOpen(...args);
       }
+      if (isHttp && tg.openLink) {
+        // Hands the HTTPS universal link to Telegram/OS, which escapes the
+        // Mini App WebView — this is what avoids ERR_UNKNOWN_URL_SCHEME.
+        tg.openLink(href);
+        return null;
+      }
+      if (!isHttp && href) {
+        // Custom wallet scheme with no universal link available.
+        window.location.href = href;
+        return null;
+      }
+    } catch (err) {
+      console.warn("[wallet-launch] telegram open failed, using native", err);
     }
     return nativeOpen(...args);
   }) as typeof window.open;
 }
 
-
 patchTelegramWindowOpen();
+
 
 // DIAGNOSTIC: log Telegram environment
 if (typeof window !== "undefined") {

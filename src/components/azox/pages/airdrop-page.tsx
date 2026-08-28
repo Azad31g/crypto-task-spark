@@ -160,7 +160,11 @@ export function AirdropPage() {
   const [confetti, setConfetti] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isAutoStarting, setIsAutoStarting] = useState(false);
+  // On-chain registration succeeded but the backend write did not — the tx is
+  // still valid, we only need to retry the data sync (never the payment).
+  const [syncFailed, setSyncFailed] = useState(false);
+  const [lastTxHash, setLastTxHash] = useState<`0x${string}` | null>(null);
+
   const [dbRegistration, setDbRegistration] =
     useState<WalletRegistration | null>(null);
 
@@ -242,18 +246,21 @@ export function AirdropPage() {
   const isRegistered = address
     ? isEligible === true
     : dbRegistration !== null;
-  const busy = isTxPending || isConfirming || isAutoStarting;
+  const busy = isTxPending || isConfirming;
 
-  const handleRegister = async (auto = false) => {
+  // MANUAL ONLY: never called from an effect. Connecting a wallet must never
+  // send a transaction — the user presses "Register Now" explicitly.
+  const handleRegister = async () => {
     if (registrationInFlightRef.current) return;
     registrationInFlightRef.current = true;
     resetTx();
     setFlowError(null);
     console.info("[airdrop] REGISTRATION_TRIGGERED", {
-      auto,
+      manual: true,
       address,
       chainId,
     });
+
 
     try {
       if (!isConnected || !address) {
@@ -365,19 +372,29 @@ export function AirdropPage() {
         return;
       }
       console.info("[airdrop] REGISTRATION_VERIFIED");
+      setLastTxHash(hash);
+      setSyncFailed(false);
       const telegramId = currentTelegramId();
       if (telegramId) {
-        const saved = await saveWalletRegistration({
-          telegramId,
-          walletAddress: address,
-          chainId: robinhoodTestnet.id,
-          txHash: hash,
-        });
+        // Backend is a data layer only: a failure here NEVER invalidates the
+        // confirmed on-chain registration and never re-requests payment.
+        let saved: WalletRegistration | null = null;
+        try {
+          saved = await saveWalletRegistration({
+            telegramId,
+            walletAddress: address,
+            chainId: robinhoodTestnet.id,
+            txHash: hash,
+          });
+        } catch (syncError) {
+          console.error("[airdrop] SUPABASE_SAVE_ERROR", syncError);
+        }
         console.info("[airdrop] SUPABASE_SAVE_RESULT", {
           telegramId,
           saved: Boolean(saved),
         });
         if (saved) setDbRegistration(saved);
+        else setSyncFailed(true);
       } else {
         console.info("[airdrop] SUPABASE_SAVE_SKIPPED", {
           reason: "no telegram id",
@@ -394,35 +411,16 @@ export function AirdropPage() {
       console.error(`[airdrop] ${type}`, error);
     } finally {
       setIsConfirming(false);
-      setIsAutoStarting(false);
+
       registrationInFlightRef.current = false;
     }
   };
 
 
-  // Automatic registration on the real disconnected -> connected transition.
-  // Guarded by a per-address ref so React StrictMode double-effects, re-renders
-  // and account refreshes can never produce a second transaction.
+  // Registration is MANUAL. No effect ever starts a transaction; this ref only
+  // prevents a double-submit from rapid taps on the Register button.
   const registrationInFlightRef = useRef(false);
-  const autoAttemptedForRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!isConnected || !address) {
-      autoAttemptedForRef.current = null;
-      setIsAutoStarting(false);
-      return;
-    }
-    // Only the chain decides: never auto-start when already eligible, and wait
-    // until the eligibility read has actually resolved.
-    if (isEligible !== false) return;
-    if (autoAttemptedForRef.current === address) return;
-    if (registrationInFlightRef.current) return;
-    autoAttemptedForRef.current = address;
-    setIsAutoStarting(true);
-    console.info("[airdrop] AUTO_REGISTER_START", { address, chainId });
-    void handleRegister(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, address, isEligible]);
 
 
   return (
@@ -648,7 +646,7 @@ export function AirdropPage() {
 
             <button
               onClick={() => {
-                void handleRegister(false);
+                void handleRegister();
               }}
               disabled={!hasEnoughBalance || busy}
               className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:cursor-not-allowed"
@@ -660,18 +658,25 @@ export function AirdropPage() {
                 ? "⏳ Confirming on chain…"
                 : isTxPending
                   ? "⏳ Confirm in your wallet…"
-                  : isAutoStarting
-                    ? "⏳ Preparing registration…"
-                    : !hasEnoughBalance
-                      ? "Insufficient Balance"
-                      : flowError || txError
-                        ? `Retry Registration — ${FEE_LABEL}`
-                        : `Register Now — ${FEE_LABEL}`}
+                  : !hasEnoughBalance
+                    ? "Insufficient Balance"
+                    : flowError || txError
+                      ? `Retry Registration — ${FEE_LABEL}`
+                      : `Register Now — ${FEE_LABEL}`}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Registration starts automatically after connecting • {FEE_LABEL} +
-              gas
+              You confirm the transaction in your wallet • {FEE_LABEL} + gas
             </p>
+
+            {syncFailed && (
+              <p className="text-center text-[11px]" style={{ color: "#f59e0b" }}>
+                ✅ On-chain registration confirmed
+                {lastTxHash ? ` (${lastTxHash.slice(0, 10)}…)` : ""} — saving it
+                to your profile failed. No new payment is needed; reopen this
+                page to retry the sync.
+              </p>
+            )}
+
 
 
 
