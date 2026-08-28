@@ -59,8 +59,8 @@ function preserveNativeWalletLaunches(): void {
       try {
         webApp.openTelegramLink(url);
         return null;
-      } catch {
-        return nativeOpen(...args);
+      } catch (error) {
+        console.error("[appkit-runtime] failed to open telegram link", error);
       }
     }
 
@@ -121,10 +121,9 @@ createAppKit({
       },
     } as Record<string, unknown>),
   },
-  // Official AppKit option: inside Telegram, launch each wallet's registry
-  // HTTPS universal link (link_mode) instead of its custom scheme, for the
-  // whole WalletConnect wallet list. Normal browsers keep native schemes.
-  experimental_preferUniversalLinks: IS_TELEGRAM,
+  // Prefer each wallet's official HTTPS universal link when AppKit has one.
+  // AppKit remains responsible for every wallet URL and native-link fallback.
+  experimental_preferUniversalLinks: true,
   features: { analytics: false },
 });
 
