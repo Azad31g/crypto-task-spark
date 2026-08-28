@@ -656,17 +656,23 @@ export function AirdropPage() {
                 background: hasEnoughBalance && !busy ? ORANGE : "#555555",
               }}
             >
-              {busy
-                ? isConfirming
-                  ? "⏳ Confirming on chain…"
-                  : "⏳ Confirm in your wallet…"
-                : hasEnoughBalance
-                  ? `Retry Registration — ${FEE_LABEL}`
-                  : "Insufficient Balance"}
+              {isConfirming
+                ? "⏳ Confirming on chain…"
+                : isTxPending
+                  ? "⏳ Confirm in your wallet…"
+                  : isAutoStarting
+                    ? "⏳ Preparing registration…"
+                    : !hasEnoughBalance
+                      ? "Insufficient Balance"
+                      : flowError || txError
+                        ? `Retry Registration — ${FEE_LABEL}`
+                        : `Register Now — ${FEE_LABEL}`}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Registration starts automatically • {FEE_LABEL} + gas
+              Registration starts automatically after connecting • {FEE_LABEL} +
+              gas
             </p>
+
 
 
             {(flowError || txError) && (
