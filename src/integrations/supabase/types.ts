@@ -14,39 +14,7 @@ export type Database = {
   }
   public: {
     Tables: {
-      tasks: {
-        Row: {
-          created_at: string | null
-          id: string
-          platform: string
-          points: number
-          sort_order: number
-          status: string
-          title: string
-          url: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          platform: string
-          points?: number
-          sort_order?: number
-          status?: string
-          title: string
-          url: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          platform?: string
-          points?: number
-          sort_order?: number
-          status?: string
-          title?: string
-          url?: string
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Views: {
       [_ in never]: never
