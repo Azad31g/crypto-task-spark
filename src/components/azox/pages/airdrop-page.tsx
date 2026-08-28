@@ -236,16 +236,25 @@ export function AirdropPage() {
 
   const isWrongNetwork = isConnected && chainId !== robinhoodTestnet.id;
   const hasEnoughBalance = Boolean(balance && balance.value >= REQUIRED_BALANCE);
-  // A stored registration for this telegram_id is permanent proof.
-  const isRegistered = isEligible === true || dbRegistration !== null;
-  const busy = isTxPending || isConfirming;
+  // ON-CHAIN STATE IS AUTHORITATIVE. A Supabase wallet_registrations row is
+  // only a display hint while no wallet is connected — it must never suppress
+  // connecting or paying, and it must never claim eligibility the chain denies.
+  const isRegistered = address
+    ? isEligible === true
+    : dbRegistration !== null;
+  const busy = isTxPending || isConfirming || isAutoStarting;
 
   const handleRegister = async (auto = false) => {
-    if (dbRegistrationRef.current) return;
     if (registrationInFlightRef.current) return;
     registrationInFlightRef.current = true;
     resetTx();
     setFlowError(null);
+    console.info("[airdrop] REGISTRATION_TRIGGERED", {
+      auto,
+      address,
+      chainId,
+    });
+
     try {
       if (!isConnected || !address) {
         throw new Error("Wallet is not connected");
