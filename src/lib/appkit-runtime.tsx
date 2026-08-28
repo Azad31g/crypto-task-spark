@@ -74,11 +74,10 @@ const wagmiAdapter = new WagmiAdapter({
   projectId,
   ssr: false,
   storage: createStorage({
-    key: "azox.wagmi",
     storage:
       typeof window !== "undefined" && window.localStorage
         ? window.localStorage
-        : undefined,
+        : noopStorage,
   }),
 });
 
