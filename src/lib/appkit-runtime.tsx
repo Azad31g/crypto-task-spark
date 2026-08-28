@@ -8,18 +8,16 @@
 // during SSR — it must never create an adapter.
 import type { ReactNode } from "react";
 import { WagmiProvider } from "wagmi";
-import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 
 // --- Telegram Mini App support -------------------------------------------
-// Telegram's WebView does not implement window.open(): AppKit's deep-link to
-// MetaMask/Trust silently no-ops, so the WalletConnect session is created but
-// the user never gets back to the Mini App. Route link opening through the
-// Telegram WebApp API instead. Must run BEFORE createAppKit().
+// ONLY genuine Telegram links (t.me / tg://) are routed through the Telegram
+// WebApp API. Every other URL — including all WalletConnect deep links and
+// wallet universal links — keeps the original native window.open, so
+// AppKit/WalletConnect stays fully in charge of launching wallets.
 type TgWebApp = {
-  openLink?: (url: string, opts?: { try_instant_view?: boolean }) => void;
   openTelegramLink?: (url: string) => void;
 };
 
@@ -27,22 +25,19 @@ function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
   const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
     ?.WebApp;
-  if (!tg) return;
-  window.open = ((url?: string | URL) => {
-    const href = String(url ?? "");
-    try {
-      if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
-        tg.openTelegramLink?.(href);
-      } else if (href.startsWith("http")) {
-        tg.openLink?.(href);
-      } else {
-        // Custom wallet schemes (metamask://, trust://…)
-        window.location.href = href;
+  if (!tg?.openTelegramLink) return;
+  const nativeOpen = window.open.bind(window);
+  window.open = ((...args: Parameters<typeof window.open>) => {
+    const href = String(args[0] ?? "");
+    if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
+      try {
+        tg.openTelegramLink!(href);
+        return null;
+      } catch {
+        return nativeOpen(...args);
       }
-    } catch {
-      window.location.href = href;
     }
-    return null;
+    return nativeOpen(...args);
   }) as typeof window.open;
 }
 
