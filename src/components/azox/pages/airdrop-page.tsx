@@ -683,7 +683,7 @@ export function AirdropPage() {
                   {address ? shorten(address) : ""}
                 </code>
               </div>
-              <AppKitButton balance="hide" />
+              <AccountAction />
             </div>
 
             <p className="text-xs text-muted-foreground">
