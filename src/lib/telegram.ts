@@ -20,6 +20,10 @@ type TelegramWebApp = {
 type TelegramBridgeWindow = Window & {
   TelegramWebviewProxy?: unknown;
   TelegramWebviewProxyProto?: unknown;
+  Telegram?: {
+    WebApp?: TelegramWebApp;
+    WebView?: { initParams?: Record<string, unknown> };
+  };
 };
 
 declare global {
@@ -52,6 +56,36 @@ export function isTelegramMiniApp(): boolean {
   if (
     bridgeWindow.TelegramWebviewProxy ||
     bridgeWindow.TelegramWebviewProxyProto
+  ) {
+    return true;
+  }
+
+  // The official Telegram SDK reads launch parameters from the URL once and
+  // persists them under this sessionStorage key. After a wallet round-trip the
+  // URL may no longer contain tgWebApp* parameters, while this remains the
+  // authoritative signal that the page belongs to the same Mini App session.
+  try {
+    const storedParams = window.sessionStorage.getItem("__telegram__initParams");
+    if (storedParams) {
+      const parsed = JSON.parse(storedParams) as Record<string, unknown>;
+      if (
+        parsed["tgWebAppData"] ||
+        parsed["tgWebAppVersion"] ||
+        parsed["tgWebAppPlatform"]
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    // Storage can be unavailable in restricted WebViews; continue with the
+    // SDK's in-memory launch parameters below.
+  }
+
+  const sdkParams = bridgeWindow.Telegram?.WebView?.initParams;
+  if (
+    sdkParams?.["tgWebAppData"] ||
+    sdkParams?.["tgWebAppVersion"] ||
+    sdkParams?.["tgWebAppPlatform"]
   ) {
     return true;
   }
