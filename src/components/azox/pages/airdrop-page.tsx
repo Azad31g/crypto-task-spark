@@ -646,7 +646,7 @@ export function AirdropPage() {
 
             <button
               onClick={() => {
-                void handleRegister(false);
+                void handleRegister();
               }}
               disabled={!hasEnoughBalance || busy}
               className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:cursor-not-allowed"
@@ -658,18 +658,25 @@ export function AirdropPage() {
                 ? "⏳ Confirming on chain…"
                 : isTxPending
                   ? "⏳ Confirm in your wallet…"
-                  : isAutoStarting
-                    ? "⏳ Preparing registration…"
-                    : !hasEnoughBalance
-                      ? "Insufficient Balance"
-                      : flowError || txError
-                        ? `Retry Registration — ${FEE_LABEL}`
-                        : `Register Now — ${FEE_LABEL}`}
+                  : !hasEnoughBalance
+                    ? "Insufficient Balance"
+                    : flowError || txError
+                      ? `Retry Registration — ${FEE_LABEL}`
+                      : `Register Now — ${FEE_LABEL}`}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Registration starts automatically after connecting • {FEE_LABEL} +
-              gas
+              You confirm the transaction in your wallet • {FEE_LABEL} + gas
             </p>
+
+            {syncFailed && (
+              <p className="text-center text-[11px]" style={{ color: "#f59e0b" }}>
+                ✅ On-chain registration confirmed
+                {lastTxHash ? ` (${lastTxHash.slice(0, 10)}…)` : ""} — saving it
+                to your profile failed. No new payment is needed; reopen this
+                page to retry the sync.
+              </p>
+            )}
+
 
 
 
