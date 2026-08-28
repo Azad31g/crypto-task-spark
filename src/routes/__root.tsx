@@ -46,7 +46,15 @@ async function loadAppKitProvider() {
   };
 }
 
-const AppKitWagmiProvider = lazy(loadAppKitProvider);
+// Start the browser-only chunk as early as possible so the client mounts the
+// AppKit wagmi config on (or right after) the first client render instead of
+// lingering on a second, read-only config.
+const appKitProviderPromise =
+  typeof window !== "undefined" ? loadAppKitProvider() : null;
+
+const AppKitWagmiProvider = lazy(
+  () => appKitProviderPromise ?? loadAppKitProvider(),
+);
 
 
 
