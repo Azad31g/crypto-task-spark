@@ -55,23 +55,33 @@ function AppKitButton({ balance }: { balance?: "hide" }) {
   );
 }
 
-// Inside Telegram Android, a wallet whose WalletConnect Explorer entry has no
-// usable link_mode can only be launched through a custom scheme
-// (metamask://…), which the Telegram WebView refuses with
-// ERR_UNKNOWN_URL_SCHEME. We never rewrite or guess wallet URLs; instead we
-// tell the user and offer Telegram's own official openLink() escape hatch so
-// they can finish the connection in a real browser.
-function TelegramWalletNotice() {
-  const [inTelegram, setInTelegram] = useState(false);
+// Detects a genuine Telegram Mini App session after mount (SSR-safe).
+function useIsTelegramMiniApp() {
+  const [inTelegram, setInTelegram] = useState<boolean | null>(null);
   useEffect(() => {
     setInTelegram(isTelegramMiniApp());
   }, []);
-  if (!inTelegram) return null;
+  return inTelegram;
+}
+
+// Inside Telegram, a wallet whose WalletConnect Explorer entry has no usable
+// link_mode can only be launched by AppKit through a custom scheme
+// (metamask://…), which the Telegram WebView refuses with
+// ERR_UNKNOWN_URL_SCHEME. AppKit 1.8.23 exposes no supported per-wallet
+// link_mode filter (only allWallets/excludeWalletIds/featuredWalletIds by id,
+// which we refuse to hardcode), so inside Telegram we never render the AppKit
+// wallet-selection button at all. The only offered action is Telegram's own
+// official WebApp.openLink(), which opens this exact AZOX URL in the user's
+// real browser where wallet connection works normally. No URL is rewritten or
+// guessed, and window.open is never used as a fallback.
+function TelegramConnectFallback() {
+  const [openFailed, setOpenFailed] = useState(false);
   return (
     <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-left">
       <p className="text-[11px] text-muted-foreground">
-        Some wallets cannot be opened from inside Telegram. If your wallet does
-        not open after selecting it, continue in your browser instead.
+        Telegram cannot open wallet apps directly. Tap below to open AZOX in
+        your phone browser and connect your wallet there — your progress and
+        registration stay the same.
       </p>
       <button
         type="button"
@@ -80,17 +90,60 @@ function TelegramWalletNotice() {
           const webApp = getWebApp() as
             | { openLink?: (u: string, o?: Record<string, unknown>) => void }
             | null;
-          if (webApp?.openLink) webApp.openLink(url, { try_instant_view: false });
-          else window.open(url, "_blank", "noopener,noreferrer");
+          if (webApp?.openLink) {
+            webApp.openLink(url, { try_instant_view: false });
+          } else {
+            setOpenFailed(true);
+          }
         }}
-        className="mt-2 text-[11px] font-semibold underline"
-        style={{ color: ORANGE }}
+        className="mt-2 rounded-lg px-3 py-2 text-[11px] font-bold text-white"
+        style={{ background: ORANGE }}
       >
         Open AZOX in my browser
       </button>
+      {openFailed && (
+        <p className="mt-2 break-all text-[11px] text-muted-foreground">
+          Please open this link manually in Chrome or Safari:{" "}
+          <span className="font-semibold text-foreground">
+            {typeof window !== "undefined" ? window.location.href : ""}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
+
+// Renders the AppKit wallet button ONLY outside Telegram. Inside a real
+// Telegram Mini App the AppKit selection UI is never mounted, so its
+// custom-scheme launch path can never be reached.
+function WalletConnectAction({ balance }: { balance?: "hide" }) {
+  const inTelegram = useIsTelegramMiniApp();
+  if (inTelegram === null) return <WalletButtonFallback />;
+  if (inTelegram) return <TelegramConnectFallback />;
+  return <AppKitButton {...(balance ? { balance } : {})} />;
+}
+
+// Account control for an already-connected wallet. The AppKit account modal
+// can re-enter the wallet-launch path (switch/reconnect), so inside Telegram
+// we expose only a plain disconnect action instead.
+function AccountAction() {
+  const inTelegram = useIsTelegramMiniApp();
+  const { disconnect } = useDisconnect();
+  if (inTelegram === null) return <WalletButtonFallback />;
+  if (inTelegram) {
+    return (
+      <button
+        type="button"
+        onClick={() => disconnect()}
+        className="rounded-lg border border-border/60 px-3 py-1.5 text-[11px] font-semibold"
+      >
+        Disconnect
+      </button>
+    );
+  }
+  return <AppKitButton balance="hide" />;
+}
+
 
 const ORANGE = "#FF7A18";
 const GREEN = "#a3e635";
@@ -608,9 +661,9 @@ export function AirdropPage() {
               Robinhood Chain Testnet
             </span>
             <div className="flex justify-center">
-              <AppKitButton />
+              <WalletConnectAction />
             </div>
-            <TelegramWalletNotice />
+
             <p className="text-center text-[11px] text-muted-foreground">
               One-time registration fee: {FEE_LABEL}
             </p>
@@ -652,7 +705,7 @@ export function AirdropPage() {
                   {address ? shorten(address) : ""}
                 </code>
               </div>
-              <AppKitButton balance="hide" />
+              <AccountAction />
             </div>
 
             <p className="text-xs text-muted-foreground">
