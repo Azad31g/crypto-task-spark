@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
 console.log("[tasks] using URL:", "oevefjiajicjtbhqvglk");
 import {
   SOCIAL_TASKS,

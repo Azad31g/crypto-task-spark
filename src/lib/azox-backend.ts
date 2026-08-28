@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
 import { getStartParam, getTelegramUser } from "@/lib/telegram";
 
 /** The external project's user tables are not in the generated types. */
