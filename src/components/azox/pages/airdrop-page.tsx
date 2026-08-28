@@ -413,29 +413,10 @@ export function AirdropPage() {
   };
 
 
-  // Automatic registration on the real disconnected -> connected transition.
-  // Guarded by a per-address ref so React StrictMode double-effects, re-renders
-  // and account refreshes can never produce a second transaction.
+  // Registration is MANUAL. No effect ever starts a transaction; this ref only
+  // prevents a double-submit from rapid taps on the Register button.
   const registrationInFlightRef = useRef(false);
-  const autoAttemptedForRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!isConnected || !address) {
-      autoAttemptedForRef.current = null;
-      setIsAutoStarting(false);
-      return;
-    }
-    // Only the chain decides: never auto-start when already eligible, and wait
-    // until the eligibility read has actually resolved.
-    if (isEligible !== false) return;
-    if (autoAttemptedForRef.current === address) return;
-    if (registrationInFlightRef.current) return;
-    autoAttemptedForRef.current = address;
-    setIsAutoStarting(true);
-    console.info("[airdrop] AUTO_REGISTER_START", { address, chainId });
-    void handleRegister(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, address, isEligible]);
 
 
   return (
