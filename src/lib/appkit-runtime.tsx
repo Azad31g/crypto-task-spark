@@ -130,7 +130,10 @@ createAppKit({
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
-    <WagmiProvider config={wagmiAdapter.wagmiConfig} reconnectOnMount>
+    <WagmiProvider
+      config={wagmiAdapter.wagmiConfig}
+      reconnectOnMount={!IS_TELEGRAM}
+    >
       {children}
     </WagmiProvider>
   );
