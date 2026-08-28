@@ -323,7 +323,7 @@ export function AirdropPage() {
         value: REGISTRATION_FEE,
         chainId: robinhoodTestnet.id,
       });
-      autoRegisterAttemptedRef.current = address;
+      
       console.info("[airdrop] TRANSACTION_SUBMITTED", { hash });
       console.info("[airdrop] WAITING_FOR_RECEIPT");
       setIsConfirming(true);
