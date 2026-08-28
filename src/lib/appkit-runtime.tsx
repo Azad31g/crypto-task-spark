@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
-import { networks, projectId, APP_URL } from "./wagmi-config";
+import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 import { isTelegramMiniApp } from "./telegram";
 
 // The origin actually serving the app. Wallets validate metadata.url against
@@ -150,7 +150,9 @@ const wagmiAdapter = new WagmiAdapter({
   }),
 });
 
-createAppKit({
+const REDIRECT = { native: "", universal: TELEGRAM_APP_URL };
+
+const appkit = createAppKit({
   // Type-only mismatch under exactOptionalPropertyTypes (optional `namespace`).
   // Runtime value stays the real WagmiAdapter so connectors register correctly.
   // @ts-expect-error -- see above
@@ -163,12 +165,35 @@ createAppKit({
     // Must match the origin actually serving the app (verified at runtime).
     url: RUNTIME_APP_URL,
     icons: [`${RUNTIME_APP_URL}/favicon.png`],
+    // WalletConnect honours metadata.redirect at session proposal time: it tells
+    // the wallet where to send the user back after approval, so the pending
+    // WalletConnect session can settle while the Mini App is still alive.
+    // AppKit 1.8.23's Metadata type omits this field, hence the cast.
+    ...({ redirect: REDIRECT } as Record<string, unknown>),
   },
   // Telegram's Android WebView cannot resolve wallet custom schemes, so ask
   // AppKit to prefer each wallet's registry HTTPS universal link there only.
   // Normal browsers keep AppKit's default behaviour untouched.
   experimental_preferUniversalLinks: IS_TELEGRAM_ANDROID,
   features: { analytics: false },
+});
+
+// AppKit 1.8.23's initializeUniversalAdapter() rebuilds metadata as
+// { name, description, url, icons } before initialising UniversalProvider,
+// silently dropping `redirect`. The SignClient therefore never learns the
+// return URL, so the wallet keeps the user and the Mini App session never
+// settles. Re-inject redirect onto the SignClient's metadata after init so
+// the next session proposal carries it. populateAppMetadata() (called during
+// SignClient init) preserves any field it receives, so this survives.
+appkit.getUniversalProvider().then((provider) => {
+  const client = provider?.client as
+    | { metadata?: Record<string, unknown> }
+    | undefined;
+  if (client?.metadata) {
+    client.metadata = { ...client.metadata, redirect: REDIRECT };
+  }
+}).catch((error) => {
+  console.error("[appkit-runtime] failed to inject WC redirect", error);
 });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {

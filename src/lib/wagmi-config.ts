@@ -26,6 +26,12 @@ export const projectId = "be9bcbf74fc2ea216bd558ee88a70feb";
 // runtime; it is kept in sync with the published origin for clarity.
 export const APP_URL = "https://crypto-task-spark.lovable.app";
 
+// Telegram Mini App start URL the wallet bounces the user back to after
+// approving the WalletConnect session. WalletConnect's session-proposal
+// metadata.redirect.universal field carries this; the wallet opens it, and
+// Telegram reopens the AZOX Mini App so the pending session can settle.
+export const TELEGRAM_APP_URL = "https://t.me/AZOX_Airdrop_bot/AZOX_Airdrop";
+
 export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [
   robinhoodTestnet,
 ];
