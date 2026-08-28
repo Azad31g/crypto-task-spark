@@ -1,88 +1,43 @@
-# AZOX Wallet + Airdrop — Audit and Restoration Plan
+# Read-only audit: wallet connect → register → Supabase lifecycle
 
-Audit only. No files were modified.
+No files were changed. Findings only, plus optional follow-ups you can approve later.
 
-## 1. Last known state before the backend integration
+## Verdict on the three observed behaviours
 
-Repository history (`git log`) shows a clean boundary:
+1. **MetaMask connects and the 0.0006 ETH registration succeeds.** This is the intended path end to end.
+2. **Another wallet connects, returns to the Mini App, and no payment happens until "Register Now" is pressed.** This is **not a bug**. Payment is intentionally manual in the current code: `handleRegister` is only ever called from the button's `onClick`, and the file contains no effect that triggers a transaction on connect. So "connected without payment" is the designed behaviour for every wallet, including MetaMask.
+3. **A wallet opens but never establishes a session.** This is the only real failure class, and the code contains one path that can make it wallet-specific (see the launch-path finding below).
 
-```text
-36b9149  Imported AZOX repo into Lovable      <- pre-backend baseline (wallet + airdrop as they worked)
-45ba52a / b452463  Changes
-ae533d2  Enabled Supabase Cloud               <- backend integration starts here
-5f6b8c8  Switched back to external Supabase
-a6dbb58  Fixed WalletConnect session flow
-fede404  Fixed wallet metadata origin
-b0647fe  Prefered universal links on TG       <- HEAD
-```
+## What is app logic vs wallet-specific behaviour
 
-Baseline commit to compare against and selectively restore from: **36b9149**.
+**App logic (identical for all wallets, cannot differ per wallet after approval):**
+- Single `WagmiAdapter` created once at module scope in `src/lib/appkit-runtime.tsx`, `ssr:false`, explicit `localStorage` persistence, `reconnectOnMount` on the provider in `src/routes/__root.tsx`. Same restoration for every connector.
+- Post-approval flow in `src/components/azox/pages/airdrop-page.tsx` is connector-agnostic: `useAccount` → chain check → `switchChainAsync` → balance refetch → `isEligible` read → `sendTransactionAsync({ to, data, value, chainId })` → `waitForTransactionReceipt` → re-read `isEligible` → Supabase write. No branch anywhere keys off wallet name, connector id, or RDNS.
+- Registration truth is on-chain (`isEligible`); Supabase is a display/sync layer and its failure never re-requests payment.
 
-## 2. Files changed since 36b9149
+**Wallet-specific by nature (not fixable in app code):**
+- Whether the wallet honours `metadata.redirect.universal` and bounces the user back to `t.me/AZOX_Airdrop_bot/AZOX_Airdrop`.
+- Whether the wallet supports **chain 46630** at all. `switchChainAsync` will reject or hang on wallets that do not implement `wallet_addEthereumChain` for an unknown testnet — this surfaces as `WRONG_NETWORK` after pressing Register, not at connect time.
+- Whether the wallet's registry entry exposes a working HTTPS universal link (needed on Telegram Android) rather than only a custom scheme.
+- Whether the wallet keeps the WalletConnect session alive while backgrounded.
 
-`git diff --stat 36b9149 HEAD` (src + vite.config.ts):
+## Code paths that can genuinely differ per wallet
 
-| File | Related to the regression? |
-|---|---|
-| src/lib/appkit-runtime.tsx | YES — main cause |
-| src/routes/__root.tsx | Partly (provider mounting) |
-| src/components/azox/pages/airdrop-page.tsx | YES — auto-registration was introduced |
-| src/integrations/external-supabase/client.ts | No — backend, keep |
-| src/hooks/useAnnouncements / useGameTasks / useGlobalBest / useSupabaseTasks | No — backend, keep |
-| src/lib/azox-backend.ts | No — backend, keep |
-| src/integrations/supabase/client.ts, types.ts | No — Cloud generated, keep |
+1. **`window.open` shim + `experimental_preferUniversalLinks` (Telegram Android only).** Inside Telegram, every launch URL is routed through `Telegram.WebApp.openLink`, and `preferUniversalLinks` makes AppKit pick the registry universal link. A wallet whose registry entry has an empty or stale `mobile.universal` value gets a broken or missing URL here, while custom-scheme-only wallets lose their only working launch route. This is the most likely cause of "opens but never connects" and of any remaining `ERR_UNKNOWN_URL_SCHEME`. Outside Telegram this code is a pass-through and cannot cause it.
+2. **Double-encoding repair.** Narrowly scoped: HTTPS only, non-Telegram host, only when the already-decoded `uri` param decodes again into `wc:`. It cannot corrupt a correctly-encoded URI. Low risk, but it only helps wallets launched via HTTPS universal links.
+3. **`metadata.redirect` re-injection into the SignClient.** Fires asynchronously after `getUniversalProvider()` resolves. If a user taps Connect within that window, the first proposal can go out **without** the redirect, so that wallet will not bounce back — the session still settles later if the WebView survives. This is a timing race, not a per-wallet rule, but it looks wallet-specific in testing.
+4. **`RUNTIME_APP_URL`.** `window.location.origin` on the client. Some wallets validate proposal metadata origin strictly; when the Mini App is served from a preview host, the origin differs from the published one. This can reject a proposal in some wallets and not others.
+5. **`reconnectOnMount`.** Uniform across connectors, but its effect differs: injected connectors restore instantly; WalletConnect must re-open the relay socket, so a wallet that terminated the pairing on return shows `isConnected: false` briefly or permanently.
 
-vite.config.ts (events polyfill + universal-provider ESM alias) is unchanged since the baseline and stays as is.
+## What is NOT a source of wallet-specific failure
 
-## 3. Architectural difference, old vs current
+- Transaction request shape: fixed `to`/`data`/`value`/`chainId` for everyone.
+- Supabase writes: after receipt, non-blocking, never re-triggers payment.
+- Manual registration guard (`registrationInFlightRef`): only prevents double taps.
+- The eligibility short-circuit (`eligibility.data === true` → silent return): correct, prevents double payment.
 
-**Telegram link shim (`appkit-runtime.tsx`)**
+## Optional follow-ups (not implemented)
 
-- Old (36b9149): every `window.open` went through the Telegram WebApp API — `t.me`/`tg://` via `openTelegramLink`, all `http(s)` via `tg.openLink` (leaves the WebView, so a wallet universal link reaches the wallet app), custom schemes via `location.href`.
-- Current: only `t.me`/`tg://` are intercepted; everything else uses native `window.open`. Inside Telegram Android's WebView a native open of `metamask://…` is a WebView navigation → `net::ERR_UNKNOWN_URL_SCHEME`. Even the HTTPS universal links added by `experimental_preferUniversalLinks` now stay inside the WebView instead of being handed to the OS.
-
-This is the root cause of the current error: the shim lost the Telegram escape hatch for wallet URLs, while the current AppKit option only changes which URL is produced, not who opens it.
-
-**Wagmi storage/SSR**: old `ssr: true` + `cookieStorage`; current `ssr: false` + explicit `localStorage`. Current is the correct pairing for a client-only adapter — keep.
-
-**Provider mounting (`__root.tsx`)**: old could fall back to the connector-free SSR config in the browser; current preloads the AppKit chunk and never falls back. Current is better — keep.
-
-**Airdrop flow (`airdrop-page.tsx`)**: old auto-triggered on connect and let a Supabase row block registration; current auto-triggers with on-chain authority. Your new requirement is manual-only, so neither matches — this needs an explicit change.
-
-## 4. Target end state
-
-Wallet layer first, backend strictly as a post-transaction data layer:
-
-```text
-Connect Wallet -> AppKit modal -> wallet opens via Telegram-safe launch
--> real WalletConnect session, isConnected = true
--> user presses "Register Now — 0.0006 ETH"
--> register() tx, value 600000000000000 wei, chain 46630
--> receipt confirmed -> on-chain isEligible verified
--> ONLY THEN write wallet_registrations to external Supabase
-```
-
-Supabase never gates connecting, never gates paying, never signs anything.
-
-## 5. Restore fully vs merge manually
-
-- Restore-in-spirit (not a blind file revert): the Telegram launch shim block inside `src/lib/appkit-runtime.tsx` — bring back `tg.openLink` routing for non-Telegram HTTP(S) URLs and the custom-scheme path, on top of the current runtime-origin, localStorage and `experimental_preferUniversalLinks` improvements.
-- Manual edit only: `src/components/azox/pages/airdrop-page.tsx` (remove auto-registration, keep on-chain authority and diagnostics).
-- Do NOT restore: `__root.tsx` (current version is the better architecture), any Supabase/hook/backend file, `wagmi-config.ts`, `contracts.ts`.
-- Untouched: games, tasks, points, referrals, rankings, profile, Telegram integration, contract, ABI, fee, chain, vite polyfills.
-
-## 6. Step-by-step implementation plan
-
-1. **`src/lib/appkit-runtime.tsx` — Telegram-safe wallet launch.** Keep the native `window.open` capture, and inside Telegram add: `t.me`/`tg://` → `openTelegramLink`; any other `https://` (wallet universal link) → `tg.openLink(href)`; custom scheme (`metamask://`, `trust://`…) → `tg.openLink` if available, else `location.href`, guarded so it cannot leave the Mini App blank. Outside Telegram, behaviour stays exactly native.
-2. Keep `experimental_preferUniversalLinks` for Telegram Android so AppKit prefers the registry HTTPS link for every wallet in the list, not only MetaMask.
-3. Keep the existing `[wallet-launch]` diagnostics (wallet name, scheme, universal vs native, telegramAndroid); never log the WalletConnect URI.
-4. **`src/components/azox/pages/airdrop-page.tsx` — manual registration.** Remove the auto-register `useEffect`, `autoAttemptedForRef` and `isAutoStarting`; keep `registrationInFlightRef` as the double-submit guard. Primary CTA becomes "Register Now — 0.0006 ETH" only after a real connection, with states Confirm in your wallet → Confirming on chain → Retry after a genuine failure. Remove the "starts automatically" helper text.
-5. Keep on-chain authority: `isRegistered` from `isEligible` whenever an address is connected; a Supabase row is a display hint only and never returns early from `handleRegister`.
-6. Keep the Supabase write exactly where it is — after receipt success and after on-chain `isEligible` verification.
-7. Leave `__root.tsx`, `wagmi-config.ts`, `contracts.ts`, `vite.config.ts` and every backend file untouched.
-8. Run `bun run build`, then report changed files and the exact tx parameters.
-9. Physical Android Telegram test (MetaMask, OKX, Trust): confirm no `ERR_UNKNOWN_URL_SCHEME`, wallet opens, return to Mini App shows connected, then the manual 0.0006 ETH register prompt.
-
-## Open question
-
-`TELEGRAM_APP_URL` stays exactly as configured in this pass, per your instruction — the wallet return target is tested separately after the launch path is fixed.
+1. Await the redirect injection before AppKit's modal can open, removing the race in finding 3.
+2. Surface an explicit "this wallet does not support Robinhood Chain 46630" message when `switchChainAsync` rejects, instead of a raw `WRONG_NETWORK` string.
+3. Log the selected wallet id and the exact launch URL scheme (already partially present) to distinguish registry-link failures from relay failures on real devices.
