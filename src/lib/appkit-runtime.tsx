@@ -41,6 +41,20 @@ function isTelegramAndroid() {
 
 const IS_TELEGRAM_ANDROID = isTelegramAndroid();
 
+// Best-effort, non-sensitive: the wallet AppKit persisted as the deep-link
+// choice. Never contains the WalletConnect URI.
+function readSelectedWalletName(): string | undefined {
+  try {
+    const raw = window.localStorage?.getItem("WALLETCONNECT_DEEPLINK_CHOICE");
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { name?: string };
+    return parsed?.name;
+  } catch {
+    return undefined;
+  }
+}
+
+
 function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
   const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
