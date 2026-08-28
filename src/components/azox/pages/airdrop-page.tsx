@@ -639,9 +639,9 @@ export function AirdropPage() {
               Robinhood Chain Testnet
             </span>
             <div className="flex justify-center">
-              <AppKitButton />
+              <WalletConnectAction />
             </div>
-            <TelegramWalletNotice />
+
             <p className="text-center text-[11px] text-muted-foreground">
               One-time registration fee: {FEE_LABEL}
             </p>
