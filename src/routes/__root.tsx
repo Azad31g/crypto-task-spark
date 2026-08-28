@@ -172,6 +172,10 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
+      {/* SSR / pre-hydration markup uses the read-only wagmi config. In the
+          browser the ONLY wagmi context is the AppKit adapter one: the Suspense
+          fallback renders no wagmi provider, so no second client config can
+          mount and then be swapped out underneath connected state. */}
       <ClientOnly
         fallback={
           <WagmiProvider config={getSsrWagmiConfig()}>
@@ -179,13 +183,7 @@ function RootComponent() {
           </WagmiProvider>
         }
       >
-        <Suspense
-          fallback={
-            <WagmiProvider config={getSsrWagmiConfig()}>
-              <AppContent />
-            </WagmiProvider>
-          }
-        >
+        <Suspense fallback={null}>
           <AppKitWagmiProvider>
             <AppContent />
           </AppKitWagmiProvider>

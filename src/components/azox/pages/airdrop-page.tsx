@@ -323,7 +323,7 @@ export function AirdropPage() {
         value: REGISTRATION_FEE,
         chainId: robinhoodTestnet.id,
       });
-      autoRegisterAttemptedRef.current = address;
+      
       console.info("[airdrop] TRANSACTION_SUBMITTED", { hash });
       console.info("[airdrop] WAITING_FOR_RECEIPT");
       setIsConfirming(true);
@@ -382,23 +382,9 @@ export function AirdropPage() {
   };
 
 
-  // Automatic registration starts on the disconnected -> connected transition.
-  const autoRegisterAttemptedRef = useRef<string | null>(null);
-  const previousConnectionRef = useRef(false);
+  // Registration is never automatic: connecting a wallet only connects it.
+  // The transaction is requested solely from the "Register Now" button.
   const registrationInFlightRef = useRef(false);
-
-  useEffect(() => {
-    const wasConnected = previousConnectionRef.current;
-    previousConnectionRef.current = isConnected;
-
-    if (!isConnected) {
-      autoRegisterAttemptedRef.current = null;
-      return;
-    }
-    if (dbRegistration) return;
-    if (!wasConnected && address) void handleRegister(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, address]);
 
   return (
     <div className="flex flex-col gap-5 pb-8">
