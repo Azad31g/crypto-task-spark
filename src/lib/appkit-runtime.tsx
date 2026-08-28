@@ -28,17 +28,40 @@ type TgWebApp = {
   openTelegramLink?: (url: string) => void;
 };
 
+function isTelegramAndroid() {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as Record<string, unknown>;
+  const inTelegram =
+    Boolean(w["Telegram"]) ||
+    Boolean(w["TelegramWebviewProxy"]) ||
+    Boolean(w["TelegramWebviewProxyProto"]);
+  const ua = navigator.userAgent.toLowerCase();
+  return inTelegram && ua.includes("android");
+}
+
+const IS_TELEGRAM_ANDROID = isTelegramAndroid();
+
 function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
   const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
     ?.WebApp;
-  if (!tg?.openTelegramLink) return;
   const nativeOpen = window.open.bind(window);
   window.open = ((...args: Parameters<typeof window.open>) => {
     const href = String(args[0] ?? "");
-    if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
+    // Diagnostics only — never log the WalletConnect URI itself.
+    const scheme = href.split(":")[0]?.slice(0, 24) ?? "";
+    const isHttps = href.startsWith("https://") || href.startsWith("http://");
+    console.info("[wallet-launch]", {
+      scheme,
+      launch: isHttps ? "universal" : "native",
+      telegramAndroid: IS_TELEGRAM_ANDROID,
+    });
+    if (
+      tg?.openTelegramLink &&
+      (href.startsWith("https://t.me") || href.startsWith("tg://"))
+    ) {
       try {
-        tg.openTelegramLink!(href);
+        tg.openTelegramLink(href);
         return null;
       } catch {
         return nativeOpen(...args);
@@ -47,6 +70,7 @@ function patchTelegramWindowOpen() {
     return nativeOpen(...args);
   }) as typeof window.open;
 }
+
 
 patchTelegramWindowOpen();
 
