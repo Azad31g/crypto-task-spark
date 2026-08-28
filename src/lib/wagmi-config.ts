@@ -26,10 +26,10 @@ export const projectId = "be9bcbf74fc2ea216bd558ee88a70feb";
 // the deployed app, never a Lovable preview URL.
 export const APP_URL = "https://ear-magic-sparkkk.lovable.app";
 
-// Telegram Mini App link (https://t.me/<bot>/<app>). Used as the WalletConnect
-// return target so the wallet sends the user back into Telegram after
-// approving. Leave empty until the real bot link is known — never guess one.
-export const TELEGRAM_APP_URL = "https://t.me/AZOX_Airdrop_bot?startapp";
+// The real Telegram bot link. No app short name is invented here: only the
+// bot URL that is known to exist. Used as the WalletConnect return target when
+// the app is actually running inside Telegram.
+export const TELEGRAM_BOT_URL = "https://t.me/AZOX_Airdrop_bot";
 
 export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [
   robinhoodTestnet,
