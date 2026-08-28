@@ -56,14 +56,15 @@ if (typeof window !== "undefined") {
 }
 
 // Module scope, exactly once — not inside a React component or useEffect.
-// cookieStorage keeps the WalletConnect session recoverable in the Telegram
-// WebView, where localStorage can be wiped when the Mini App is re-opened
-// after the wallet redirect.
+// This module is browser-only (loaded behind <ClientOnly>), so wagmi's default
+// localStorage persister is the supported configuration: it is what
+// reconnectOnMount reads when Telegram resumes the Mini App after the wallet
+// approval. cookieStorage would require the full cookieToInitialState SSR
+// hydration handshake, which a client-only adapter cannot provide.
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
-  ssr: true,
-  storage: createStorage({ storage: cookieStorage }),
+  ssr: false,
 });
 
 createAppKit({
