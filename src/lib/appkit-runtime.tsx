@@ -7,7 +7,7 @@
 // only exports chain metadata plus a connector-free, read-only config used
 // during SSR — it must never create an adapter.
 import type { ReactNode } from "react";
-import { WagmiProvider, createStorage } from "wagmi";
+import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
