@@ -46,7 +46,15 @@ async function loadAppKitProvider() {
   };
 }
 
-const AppKitWagmiProvider = lazy(loadAppKitProvider);
+// Start the browser-only chunk as early as possible so the client mounts the
+// AppKit wagmi config on (or right after) the first client render instead of
+// lingering on a second, read-only config.
+const appKitProviderPromise =
+  typeof window !== "undefined" ? loadAppKitProvider() : null;
+
+const AppKitWagmiProvider = lazy(
+  () => appKitProviderPromise ?? loadAppKitProvider(),
+);
 
 
 
@@ -172,10 +180,12 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
-      {/* SSR / pre-hydration markup uses the read-only wagmi config. In the
-          browser the ONLY wagmi context is the AppKit adapter one: the Suspense
-          fallback renders no wagmi provider, so no second client config can
-          mount and then be swapped out underneath connected state. */}
+      {/* The read-only wagmi config exists ONLY for the server render (it has
+          no connectors and never reconnects). In the browser the AppKit chunk
+          is preloaded at module scope, so the single live client wagmi context
+          is the AppKit adapter one; the Suspense fallback deliberately renders
+          no wagmi provider, so no second client config can mount underneath
+          connected state. */}
       <ClientOnly
         fallback={
           <WagmiProvider config={getSsrWagmiConfig()}>

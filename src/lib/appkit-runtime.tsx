@@ -7,10 +7,17 @@
 // only exports chain metadata plus a connector-free, read-only config used
 // during SSR — it must never create an adapter.
 import type { ReactNode } from "react";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
+
+// The origin Telegram actually launched the Mini App from. This module is
+// browser-only, so window.location.origin is always the real serving origin —
+// wallets validate metadata.url against it, so never hardcode a guess. The
+// build-time APP_URL stays as the fallback only.
+const RUNTIME_APP_URL =
+  typeof window !== "undefined" ? window.location.origin : APP_URL;
 
 // --- Telegram Mini App support -------------------------------------------
 // ONLY genuine Telegram links (t.me / tg://) are routed through the Telegram
@@ -56,15 +63,22 @@ if (typeof window !== "undefined") {
 }
 
 // Module scope, exactly once — not inside a React component or useEffect.
-// This module is browser-only (loaded behind <ClientOnly>), so wagmi's default
-// localStorage persister is the supported configuration: it is what
-// reconnectOnMount reads when Telegram resumes the Mini App after the wallet
-// approval. cookieStorage would require the full cookieToInitialState SSR
-// hydration handshake, which a client-only adapter cannot provide.
+// This module is browser-only (loaded behind <ClientOnly>), so persistence is
+// explicit localStorage: it survives the Telegram Android cold-relaunch after
+// wallet approval and is what reconnectOnMount reads on the way back in.
+// cookieStorage is NOT used: it would require the cookieToInitialState SSR
+// hydration handshake, which a client-only (ssr:false) adapter cannot provide,
+// and Telegram's in-app webview does not reliably persist cookies either.
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
   ssr: false,
+  storage: createStorage({
+    storage:
+      typeof window !== "undefined" && window.localStorage
+        ? window.localStorage
+        : noopStorage,
+  }),
 });
 
 createAppKit({
@@ -77,14 +91,14 @@ createAppKit({
   metadata: {
     name: "AZOX Gateway",
     description: "AZOX Gaming Hub",
-    // Production origin — must match the deployed app, not a preview URL.
-    url: APP_URL,
-    icons: [`${APP_URL}/favicon.png`],
+    // Must match the origin actually serving the Mini App (verified at runtime).
+    url: RUNTIME_APP_URL,
+    icons: [`${RUNTIME_APP_URL}/favicon.png`],
     // WalletConnect honours metadata.redirect at runtime (it tells the wallet
     // where to send the user back after approval). It is missing from AppKit's
     // Metadata type in this version, hence the cast.
     ...({
-      redirect: { native: "", universal: TELEGRAM_APP_URL || APP_URL },
+      redirect: { native: "", universal: TELEGRAM_APP_URL || RUNTIME_APP_URL },
     } as Record<string, unknown>),
   },
   features: { analytics: false },
