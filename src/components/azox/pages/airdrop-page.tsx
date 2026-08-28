@@ -123,6 +123,28 @@ function WalletConnectAction({ balance }: { balance?: "hide" }) {
   return <AppKitButton {...(balance ? { balance } : {})} />;
 }
 
+// Account control for an already-connected wallet. The AppKit account modal
+// can re-enter the wallet-launch path (switch/reconnect), so inside Telegram
+// we expose only a plain disconnect action instead.
+function AccountAction() {
+  const inTelegram = useIsTelegramMiniApp();
+  const { disconnect } = useDisconnect();
+  if (inTelegram === null) return <WalletButtonFallback />;
+  if (inTelegram) {
+    return (
+      <button
+        type="button"
+        onClick={() => disconnect()}
+        className="rounded-lg border border-border/60 px-3 py-1.5 text-[11px] font-semibold"
+      >
+        Disconnect
+      </button>
+    );
+  }
+  return <AppKitButton balance="hide" />;
+}
+
+
 const ORANGE = "#FF7A18";
 const GREEN = "#a3e635";
 const FEE_LABEL = `${formatEther(REGISTRATION_FEE)} ETH`;
