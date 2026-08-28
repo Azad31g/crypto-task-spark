@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
 import { readStorage, writeStorage } from "@/lib/points";
 import { getTelegramUser } from "@/lib/telegram";
 import { recordTaskUnits } from "@/lib/azox-backend";

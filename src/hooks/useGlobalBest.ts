@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
 
 /** Reads the single all-time world record row for a game. */
 export function useGlobalBest(gameId: string) {
