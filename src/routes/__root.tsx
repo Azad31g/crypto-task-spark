@@ -24,9 +24,10 @@ import { lazy, Suspense } from "react";
 
 
 // Browser-only AppKit + WagmiAdapter provider (see appkit-runtime.tsx).
-// The dynamic chunk can fail transiently (dev re-optimization, flaky network).
-// Retry a few times, and if it still fails, degrade to the read-only wagmi
-// config so the whole app doesn't go blank.
+// The dynamic chunk can fail transiently (dev re-optimization, flaky network),
+// so retry a few times. It must NEVER fall back to the connector-free SSR
+// config in the browser: that would silently present a permanently
+// disconnected wallet. A hard failure surfaces the real error instead.
 async function loadAppKitProvider() {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -39,11 +40,9 @@ async function loadAppKitProvider() {
     }
   }
   console.error("AppKit runtime failed to load", lastError);
-  return {
-    default: ({ children }: { children: ReactNode }) => (
-      <WagmiProvider config={getSsrWagmiConfig()}>{children}</WagmiProvider>
-    ),
-  };
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("AppKit runtime failed to load");
 }
 
 // Start the browser-only chunk as early as possible so the client mounts the
@@ -52,9 +51,16 @@ async function loadAppKitProvider() {
 const appKitProviderPromise =
   typeof window !== "undefined" ? loadAppKitProvider() : null;
 
+if (appKitProviderPromise) {
+  // The lazy() consumer surfaces the failure; this only avoids an unhandled
+  // rejection warning before React gets to it.
+  appKitProviderPromise.catch(() => {});
+}
+
 const AppKitWagmiProvider = lazy(
   () => appKitProviderPromise ?? loadAppKitProvider(),
 );
+
 
 
 

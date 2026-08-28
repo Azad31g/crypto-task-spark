@@ -160,12 +160,12 @@ export function AirdropPage() {
   const [confetti, setConfetti] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isAutoStarting, setIsAutoStarting] = useState(false);
   const [dbRegistration, setDbRegistration] =
     useState<WalletRegistration | null>(null);
-  const dbRegistrationRef = useRef<WalletRegistration | null>(null);
-  dbRegistrationRef.current = dbRegistration;
 
-  // Registration is permanent per telegram_id — check once on load.
+  // Background read only — it never gates connecting or paying.
+
   useEffect(() => {
     const telegramId = currentTelegramId();
     if (!telegramId) return;
@@ -236,16 +236,25 @@ export function AirdropPage() {
 
   const isWrongNetwork = isConnected && chainId !== robinhoodTestnet.id;
   const hasEnoughBalance = Boolean(balance && balance.value >= REQUIRED_BALANCE);
-  // A stored registration for this telegram_id is permanent proof.
-  const isRegistered = isEligible === true || dbRegistration !== null;
-  const busy = isTxPending || isConfirming;
+  // ON-CHAIN STATE IS AUTHORITATIVE. A Supabase wallet_registrations row is
+  // only a display hint while no wallet is connected — it must never suppress
+  // connecting or paying, and it must never claim eligibility the chain denies.
+  const isRegistered = address
+    ? isEligible === true
+    : dbRegistration !== null;
+  const busy = isTxPending || isConfirming || isAutoStarting;
 
   const handleRegister = async (auto = false) => {
-    if (dbRegistrationRef.current) return;
     if (registrationInFlightRef.current) return;
     registrationInFlightRef.current = true;
     resetTx();
     setFlowError(null);
+    console.info("[airdrop] REGISTRATION_TRIGGERED", {
+      auto,
+      address,
+      chainId,
+    });
+
     try {
       if (!isConnected || !address) {
         throw new Error("Wallet is not connected");
@@ -364,7 +373,15 @@ export function AirdropPage() {
           chainId: robinhoodTestnet.id,
           txHash: hash,
         });
+        console.info("[airdrop] SUPABASE_SAVE_RESULT", {
+          telegramId,
+          saved: Boolean(saved),
+        });
         if (saved) setDbRegistration(saved);
+      } else {
+        console.info("[airdrop] SUPABASE_SAVE_SKIPPED", {
+          reason: "no telegram id",
+        });
       }
       writeStorage(KEYS.registered, true);
       writeStorage(KEYS.address, address);
@@ -377,14 +394,36 @@ export function AirdropPage() {
       console.error(`[airdrop] ${type}`, error);
     } finally {
       setIsConfirming(false);
+      setIsAutoStarting(false);
       registrationInFlightRef.current = false;
     }
   };
 
 
-  // Registration is never automatic: connecting a wallet only connects it.
-  // The transaction is requested solely from the "Register Now" button.
+  // Automatic registration on the real disconnected -> connected transition.
+  // Guarded by a per-address ref so React StrictMode double-effects, re-renders
+  // and account refreshes can never produce a second transaction.
   const registrationInFlightRef = useRef(false);
+  const autoAttemptedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isConnected || !address) {
+      autoAttemptedForRef.current = null;
+      setIsAutoStarting(false);
+      return;
+    }
+    // Only the chain decides: never auto-start when already eligible, and wait
+    // until the eligibility read has actually resolved.
+    if (isEligible !== false) return;
+    if (autoAttemptedForRef.current === address) return;
+    if (registrationInFlightRef.current) return;
+    autoAttemptedForRef.current = address;
+    setIsAutoStarting(true);
+    console.info("[airdrop] AUTO_REGISTER_START", { address, chainId });
+    void handleRegister(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, address, isEligible]);
+
 
   return (
     <div className="flex flex-col gap-5 pb-8">
@@ -617,17 +656,23 @@ export function AirdropPage() {
                 background: hasEnoughBalance && !busy ? ORANGE : "#555555",
               }}
             >
-              {busy
-                ? isConfirming
-                  ? "⏳ Confirming on chain…"
-                  : "⏳ Confirm in your wallet…"
-                : hasEnoughBalance
-                  ? `Retry Registration — ${FEE_LABEL}`
-                  : "Insufficient Balance"}
+              {isConfirming
+                ? "⏳ Confirming on chain…"
+                : isTxPending
+                  ? "⏳ Confirm in your wallet…"
+                  : isAutoStarting
+                    ? "⏳ Preparing registration…"
+                    : !hasEnoughBalance
+                      ? "Insufficient Balance"
+                      : flowError || txError
+                        ? `Retry Registration — ${FEE_LABEL}`
+                        : `Register Now — ${FEE_LABEL}`}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Registration starts automatically • {FEE_LABEL} + gas
+              Registration starts automatically after connecting • {FEE_LABEL} +
+              gas
             </p>
+
 
 
             {(flowError || txError) && (
