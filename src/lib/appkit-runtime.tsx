@@ -80,10 +80,12 @@ function repairDoubleEncodedWcUri(value: string): string | null {
   return url.toString();
 }
 
-// Wallet, WalletConnect and universal links always keep the native
-// window.open path — unchanged arguments, no logging of URIs. On Telegram
-// Android, double-encoded WC universal links are repaired and handed to
-// Telegram.WebApp.openLink() so Android resolves the HTTPS App Link.
+// Inside a Telegram Mini App, the WebView cannot resolve wallet launches on
+// its own: HTTP(S) universal links must go through Telegram.WebApp.openLink()
+// (the working baseline behaviour) and genuine Telegram links through
+// openTelegramLink(). Custom wallet schemes (metamask://, trust://, ...) are
+// handed to openLink() too, with a native window.open() fallback. Outside
+// Telegram, window.open is left completely untouched.
 function preserveNativeWalletLaunches(): void {
   if (typeof window === "undefined") return;
 
@@ -94,7 +96,11 @@ function preserveNativeWalletLaunches(): void {
       window as unknown as { Telegram?: { WebApp?: TelegramLinkApi } }
     ).Telegram?.WebApp;
 
-    if (webApp?.openTelegramLink && isTelegramUrl(url)) {
+    if (!webApp || !isTelegramMiniApp()) {
+      return nativeOpen(...args);
+    }
+
+    if (webApp.openTelegramLink && isTelegramUrl(url)) {
       try {
         webApp.openTelegramLink(url);
         return null;
@@ -103,30 +109,27 @@ function preserveNativeWalletLaunches(): void {
       }
     }
 
-    const repaired = repairDoubleEncodedWcUri(url);
-    if (repaired) {
-      // Redacted diagnostics: schemes/flags only, never the WC URI.
-      console.debug("[appkit-runtime] wallet launch", {
-        originalScheme: new URL(url).protocol,
-        hadWcUriParam: true,
-        wasDoubleEncoded: true,
-        correctedScheme: new URL(repaired).protocol,
-      });
-      if (webApp?.openLink) {
-        try {
-          webApp.openLink(repaired);
-          console.debug("[appkit-runtime] opened via Telegram.WebApp.openLink");
-          return null;
-        } catch (error) {
-          console.error("[appkit-runtime] openLink failed, using native", error);
-        }
+    // Repair AppKit 1.8.23's double-encoded `uri` param before launching.
+    const target = repairDoubleEncodedWcUri(url) ?? url;
+
+    if (webApp.openLink) {
+      try {
+        // Redacted diagnostics: schemes/flags only, never the WC URI.
+        console.debug("[appkit-runtime] wallet launch via Telegram.openLink", {
+          scheme: target.split(":")[0],
+          repaired: target !== url,
+        });
+        webApp.openLink(target);
+        return null;
+      } catch (error) {
+        console.error("[appkit-runtime] openLink failed, using native", error);
       }
-      return nativeOpen(repaired, args[1], args[2]);
     }
 
-    return nativeOpen(...args);
+    return nativeOpen(target, args[1], args[2]);
   }) as typeof window.open;
 }
+
 
 preserveNativeWalletLaunches();
 
