@@ -373,7 +373,15 @@ export function AirdropPage() {
           chainId: robinhoodTestnet.id,
           txHash: hash,
         });
+        console.info("[airdrop] SUPABASE_SAVE_RESULT", {
+          telegramId,
+          saved: Boolean(saved),
+        });
         if (saved) setDbRegistration(saved);
+      } else {
+        console.info("[airdrop] SUPABASE_SAVE_SKIPPED", {
+          reason: "no telegram id",
+        });
       }
       writeStorage(KEYS.registered, true);
       writeStorage(KEYS.address, address);
@@ -386,14 +394,36 @@ export function AirdropPage() {
       console.error(`[airdrop] ${type}`, error);
     } finally {
       setIsConfirming(false);
+      setIsAutoStarting(false);
       registrationInFlightRef.current = false;
     }
   };
 
 
-  // Registration is never automatic: connecting a wallet only connects it.
-  // The transaction is requested solely from the "Register Now" button.
+  // Automatic registration on the real disconnected -> connected transition.
+  // Guarded by a per-address ref so React StrictMode double-effects, re-renders
+  // and account refreshes can never produce a second transaction.
   const registrationInFlightRef = useRef(false);
+  const autoAttemptedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isConnected || !address) {
+      autoAttemptedForRef.current = null;
+      setIsAutoStarting(false);
+      return;
+    }
+    // Only the chain decides: never auto-start when already eligible, and wait
+    // until the eligibility read has actually resolved.
+    if (isEligible !== false) return;
+    if (autoAttemptedForRef.current === address) return;
+    if (registrationInFlightRef.current) return;
+    autoAttemptedForRef.current = address;
+    setIsAutoStarting(true);
+    console.info("[airdrop] AUTO_REGISTER_START", { address, chainId });
+    void handleRegister(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, address, isEligible]);
+
 
   return (
     <div className="flex flex-col gap-5 pb-8">
