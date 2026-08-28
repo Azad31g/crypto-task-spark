@@ -91,14 +91,14 @@ createAppKit({
   metadata: {
     name: "AZOX Gateway",
     description: "AZOX Gaming Hub",
-    // Production origin — must match the deployed app, not a preview URL.
-    url: APP_URL,
-    icons: [`${APP_URL}/favicon.png`],
+    // Must match the origin actually serving the Mini App (verified at runtime).
+    url: RUNTIME_APP_URL,
+    icons: [`${RUNTIME_APP_URL}/favicon.png`],
     // WalletConnect honours metadata.redirect at runtime (it tells the wallet
     // where to send the user back after approval). It is missing from AppKit's
     // Metadata type in this version, hence the cast.
     ...({
-      redirect: { native: "", universal: TELEGRAM_APP_URL || APP_URL },
+      redirect: { native: "", universal: TELEGRAM_APP_URL || RUNTIME_APP_URL },
     } as Record<string, unknown>),
   },
   features: { analytics: false },
