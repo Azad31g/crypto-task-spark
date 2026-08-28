@@ -17,6 +17,11 @@ type TelegramWebApp = {
   HapticFeedback?: { impactOccurred: (style: string) => void };
 };
 
+type TelegramBridgeWindow = Window & {
+  TelegramWebviewProxy?: unknown;
+  TelegramWebviewProxyProto?: unknown;
+};
+
 declare global {
   interface Window {
     Telegram?: { WebApp?: TelegramWebApp };
@@ -43,6 +48,28 @@ export function isTelegram(): boolean {
 // initData / an initDataUnsafe user, or a concrete non-"unknown" platform.
 export function isTelegramMiniApp(): boolean {
   if (typeof window === "undefined") return false;
+  const bridgeWindow = window as TelegramBridgeWindow;
+  if (
+    bridgeWindow.TelegramWebviewProxy ||
+    bridgeWindow.TelegramWebviewProxyProto
+  ) {
+    return true;
+  }
+
+  // Telegram injects these launch parameters into the URL before its SDK has
+  // necessarily finished loading. Checking them keeps the first client render
+  // from briefly exposing wallet actions inside the Android WebView.
+  const launchParams = new URLSearchParams(
+    `${window.location.search.replace(/^\?/, "")}&${window.location.hash.replace(/^#/, "")}`,
+  );
+  if (
+    launchParams.has("tgWebAppData") ||
+    launchParams.has("tgWebAppVersion") ||
+    launchParams.has("tgWebAppPlatform")
+  ) {
+    return true;
+  }
+
   const webApp = window.Telegram?.WebApp as
     | (TelegramWebApp & { platform?: string })
     | undefined;
