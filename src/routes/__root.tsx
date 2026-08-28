@@ -172,7 +172,11 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
-        <script src="https://telegram.org/js/telegram-web-app.js" />
+        {/* Deferred: still executes before hydration (so the Mini App API is
+            ready for code that needs it) without blocking first paint in
+            ordinary browsers. */}
+        <script src="https://telegram.org/js/telegram-web-app.js" defer />
+
         <HeadContent />
       </head>
       <body>
@@ -199,7 +203,13 @@ function RootComponent() {
           </WagmiProvider>
         }
       >
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <div className="flex min-h-screen items-center justify-center bg-background">
+              <p className="text-sm text-muted-foreground">Loading AZOX…</p>
+            </div>
+          }
+        >
           <AppKitWagmiProvider>
             <AppContent />
           </AppKitWagmiProvider>

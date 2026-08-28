@@ -37,6 +37,22 @@ export function isTelegram(): boolean {
   return hasWebApp && (hasInitData || hasUser);
 }
 
+// Strict runtime detection of a real Telegram Mini App/WebView.
+// telegram-web-app.js defines window.Telegram in ANY browser, so presence of
+// the object alone is a false positive. A genuine Mini App session always has
+// initData / an initDataUnsafe user, or a concrete non-"unknown" platform.
+export function isTelegramMiniApp(): boolean {
+  if (typeof window === "undefined") return false;
+  const webApp = window.Telegram?.WebApp as
+    | (TelegramWebApp & { platform?: string })
+    | undefined;
+  if (!webApp) return false;
+  if (webApp.initData) return true;
+  if (webApp.initDataUnsafe?.user) return true;
+  const platform = webApp.platform;
+  return Boolean(platform && platform !== "unknown");
+}
+
 export function getTelegramUser(): TelegramUser | null {
   if (typeof window === "undefined") return null;
 

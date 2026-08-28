@@ -26,6 +26,7 @@ import {
   REGISTRATION_FEE,
 } from "@/lib/contracts";
 import { robinhoodTestnet } from "@/lib/wagmi-config";
+import { getWebApp, isTelegramMiniApp } from "@/lib/telegram";
 
 
 const KEYS = {
@@ -38,13 +39,56 @@ const WalletButton = lazy(() =>
   import("@/lib/appkit-runtime").then((m) => ({ default: m.WalletButton })),
 );
 
+function WalletButtonFallback() {
+  return (
+    <span className="text-xs text-muted-foreground">Loading wallet…</span>
+  );
+}
+
 function AppKitButton({ balance }: { balance?: "hide" }) {
   return (
-    <ClientOnly fallback={null}>
-      <Suspense fallback={null}>
+    <ClientOnly fallback={<WalletButtonFallback />}>
+      <Suspense fallback={<WalletButtonFallback />}>
         <WalletButton {...(balance ? { balance } : {})} />
       </Suspense>
     </ClientOnly>
+  );
+}
+
+// Inside Telegram Android, a wallet whose WalletConnect Explorer entry has no
+// usable link_mode can only be launched through a custom scheme
+// (metamask://…), which the Telegram WebView refuses with
+// ERR_UNKNOWN_URL_SCHEME. We never rewrite or guess wallet URLs; instead we
+// tell the user and offer Telegram's own official openLink() escape hatch so
+// they can finish the connection in a real browser.
+function TelegramWalletNotice() {
+  const [inTelegram, setInTelegram] = useState(false);
+  useEffect(() => {
+    setInTelegram(isTelegramMiniApp());
+  }, []);
+  if (!inTelegram) return null;
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-left">
+      <p className="text-[11px] text-muted-foreground">
+        Some wallets cannot be opened from inside Telegram. If your wallet does
+        not open after selecting it, continue in your browser instead.
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          const url = window.location.href;
+          const webApp = getWebApp() as
+            | { openLink?: (u: string, o?: Record<string, unknown>) => void }
+            | null;
+          if (webApp?.openLink) webApp.openLink(url, { try_instant_view: false });
+          else window.open(url, "_blank", "noopener,noreferrer");
+        }}
+        className="mt-2 text-[11px] font-semibold underline"
+        style={{ color: ORANGE }}
+      >
+        Open AZOX in my browser
+      </button>
+    </div>
   );
 }
 
@@ -566,6 +610,7 @@ export function AirdropPage() {
             <div className="flex justify-center">
               <AppKitButton />
             </div>
+            <TelegramWalletNotice />
             <p className="text-center text-[11px] text-muted-foreground">
               One-time registration fee: {FEE_LABEL}
             </p>

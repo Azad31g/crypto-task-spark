@@ -21,6 +21,31 @@ export default defineConfig({
   vite: {
     plugins: [
       {
+        // @reown/appkit ships Lit web components that touch HTMLElement at
+        // module scope. Even though the app only imports them from the
+        // browser-only `appkit-runtime` chunk, the SSR/worker bundle groups
+        // them with `wagmi`, so the Cloudflare worker evaluated Lit on every
+        // request and crashed with "HTMLElement is not defined" (HTTP 500).
+        // AppKit is never executed on the server, so resolve it to an inert
+        // stub in non-client environments; the client bundle is untouched.
+        name: "azox-appkit-ssr-stub",
+        enforce: "pre" as const,
+        resolveId(this: { environment?: { name?: string } }, id: string) {
+          if (this.environment?.name === "client") return null;
+          if (!/^@reown\/appkit(-adapter-wagmi)?(\/|$)/.test(id)) return null;
+          if (id.startsWith("@reown/appkit/networks")) return null;
+          return "\0azox-appkit-ssr-stub";
+        },
+        load(id: string) {
+          if (id !== "\0azox-appkit-ssr-stub") return null;
+          return `const notAvailable = () => { throw new Error("@reown/appkit is browser-only and must not run on the server"); };
+export const WagmiAdapter = notAvailable;
+export const createAppKit = notAvailable;
+export const AppKitButton = notAvailable;
+export default new Proxy({}, { get: () => notAvailable });`;
+        },
+      },
+      {
         // Vite/Rolldown treats the bare specifier "events" as a Node builtin and
         // stubs it with __vite-browser-external ({}) in the browser bundle, ahead
         // of resolve.alias. WalletConnect's `import EventEmitter from "events"`
