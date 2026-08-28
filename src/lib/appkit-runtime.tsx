@@ -52,10 +52,12 @@ function patchTelegramWindowOpen() {
     const scheme = href.split(":")[0]?.slice(0, 24) ?? "";
     const isHttps = href.startsWith("https://") || href.startsWith("http://");
     console.info("[wallet-launch]", {
+      wallet: readSelectedWalletName(),
       scheme,
       launch: isHttps ? "universal" : "native",
       telegramAndroid: IS_TELEGRAM_ANDROID,
     });
+
     if (
       tg?.openTelegramLink &&
       (href.startsWith("https://t.me") || href.startsWith("tg://"))
