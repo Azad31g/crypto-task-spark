@@ -163,6 +163,15 @@ createAppKit({
     // Must match the origin actually serving the app (verified at runtime).
     url: RUNTIME_APP_URL,
     icons: [`${RUNTIME_APP_URL}/favicon.png`],
+    // After wallet approval, WalletConnect relays this redirect to the
+    // wallet, which bounces the user back into the AZOX Telegram Mini App
+    // (not the bare origin) so the pending approval settles in the same
+    // page session. native stays empty: Telegram Android uses the
+    // universal HTTPS App Link only.
+    redirect: {
+      native: "",
+      universal: "https://t.me/AZOX_Airdrop_bot/AZOX_Airdrop",
+    },
   },
   // Telegram's Android WebView cannot resolve wallet custom schemes, so ask
   // AppKit to prefer each wallet's registry HTTPS universal link there only.
