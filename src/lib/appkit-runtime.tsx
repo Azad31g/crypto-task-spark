@@ -109,9 +109,10 @@ function preserveNativeWalletLaunches(): void {
       window as unknown as { Telegram?: { WebApp?: TelegramLinkApi } }
     ).Telegram?.WebApp;
 
-    if (!webApp || !isTelegramMiniApp()) {
+    if (!webApp || !isAppKitTelegramEnv()) {
       return nativeOpen(...args);
     }
+
 
     if (webApp.openTelegramLink && isTelegramUrl(url)) {
       try {
