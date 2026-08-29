@@ -37,7 +37,11 @@ function patchTelegramWindowOpen() {
   // builds these URLs; the bridge only transports them. Never inspect, decode
   // or rewrite the URL, and never route it through Telegram.WebApp.openLink().
   const nativeOpen = window.open.bind(window);
-  window.open = ((url?: string | URL, ...rest: unknown[]) => {
+  window.open = ((
+    url?: string | URL,
+    target?: string,
+    features?: string,
+  ): Window | null => {
     const href = String(url ?? "");
     if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
       tg.openTelegramLink?.(href);
@@ -45,7 +49,7 @@ function patchTelegramWindowOpen() {
     }
     // HTTPS wallet universal links, http(s):// URLs, metamask://, trust://,
     // cbwallet://, phantom://, WalletConnect URLs and any other wallet URL.
-    return nativeOpen(href, ...(rest as Parameters<typeof nativeOpen>));
+    return nativeOpen(href, target, features);
   }) as typeof window.open;
 }
 
