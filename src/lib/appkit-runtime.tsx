@@ -15,20 +15,31 @@ import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
-import { isTelegramMiniApp } from "./telegram";
+
 
 // The origin actually serving the app. Wallets validate metadata.url against
 // it, so never hardcode a guess; APP_URL is only an SSR-time fallback.
 const RUNTIME_APP_URL =
   typeof window !== "undefined" ? window.location.origin : APP_URL;
 
-function detectTelegramAndroid(): boolean {
+// Telegram environment detection MUST agree with AppKit's own
+// CoreHelperUtil.isTelegram() (window.TelegramWebviewProxy / window.Telegram /
+// TelegramWebviewProxyProto). If AppKit thinks it is inside Telegram it
+// double-encodes the WC URI and returns '_blank' targets, so our launch path
+// has to make the exact same call. Evaluated lazily on every use — never a
+// module-scope snapshot, which could be taken before telegram-web-app.js
+// (loaded with `defer`) has run.
+function isAppKitTelegramEnv(): boolean {
   if (typeof window === "undefined") return false;
-  if (!isTelegramMiniApp()) return false;
+  const w = window as unknown as Record<string, unknown>;
+  return Boolean(w["TelegramWebviewProxy"] ?? w["Telegram"] ?? w["TelegramWebviewProxyProto"]);
+}
+
+function isTelegramAndroid(): boolean {
+  if (!isAppKitTelegramEnv()) return false;
   return navigator.userAgent.toLowerCase().includes("android");
 }
 
-const IS_TELEGRAM_ANDROID = detectTelegramAndroid();
 
 type TelegramLinkApi = {
   openTelegramLink?: (url: string) => void;
@@ -48,12 +59,13 @@ function isTelegramUrl(value: string): boolean {
   }
 }
 
-// @reown/appkit-controllers 1.8.23 CoreHelperUtil.formatNativeUrl()
-// double-encodes the WalletConnect URI on Telegram Android, producing
-// `<wallet-universal-link>/wc?uri=wc%253A...`. The wallet then receives a
-// still-encoded `wc%3A...` value it cannot parse, so it opens without any
-// Connect request. Repair only that case: HTTPS launch URL (never tg:/t.me)
-// whose `uri` param decodes once more into a valid `wc:` URI.
+// @reown/appkit-controllers 1.8.23 CoreHelperUtil.formatNativeUrl() encodes
+// the WalletConnect URI twice whenever its own isTelegram() && isAndroid()
+// branch is taken — and it does so for BOTH the custom-scheme `redirect` and
+// the `redirectUniversalLink`. The wallet then receives a still-encoded
+// `wc%3A...` value it cannot parse, so it opens without any Connect request.
+// Repair that single case for ANY outer scheme (https:, metamask:, trust:, …),
+// never for genuine Telegram links, and never touching another parameter.
 function repairDoubleEncodedWcUri(value: string): string | null {
   let url: URL;
   try {
@@ -61,7 +73,7 @@ function repairDoubleEncodedWcUri(value: string): string | null {
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || isTelegramUrl(value)) return null;
+  if (isTelegramUrl(value)) return null;
 
   const uriParam = url.searchParams.get("uri"); // already decoded once
   if (!uriParam || uriParam.startsWith("wc:")) return null;
@@ -80,6 +92,7 @@ function repairDoubleEncodedWcUri(value: string): string | null {
   return url.toString();
 }
 
+
 // Inside a Telegram Mini App, the WebView cannot resolve wallet launches on
 // its own: HTTP(S) universal links must go through Telegram.WebApp.openLink()
 // (the working baseline behaviour) and genuine Telegram links through
@@ -96,9 +109,10 @@ function preserveNativeWalletLaunches(): void {
       window as unknown as { Telegram?: { WebApp?: TelegramLinkApi } }
     ).Telegram?.WebApp;
 
-    if (!webApp || !isTelegramMiniApp()) {
+    if (!webApp || !isAppKitTelegramEnv()) {
       return nativeOpen(...args);
     }
+
 
     if (webApp.openTelegramLink && isTelegramUrl(url)) {
       try {
@@ -192,7 +206,7 @@ const appkit = createAppKit({
   // Telegram's Android WebView cannot resolve wallet custom schemes, so ask
   // AppKit to prefer each wallet's registry HTTPS universal link there only.
   // Normal browsers keep AppKit's default behaviour untouched.
-  experimental_preferUniversalLinks: IS_TELEGRAM_ANDROID,
+  experimental_preferUniversalLinks: isTelegramAndroid(),
   features: { analytics: false },
 });
 
