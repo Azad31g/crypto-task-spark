@@ -10,7 +10,7 @@
 // AppKit/WalletConnect stays fully responsible for launching wallets: no URL
 // is rewritten, mapped, or routed through Telegram APIs. Only genuine
 // Telegram links are intercepted.
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
