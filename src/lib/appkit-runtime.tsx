@@ -203,16 +203,19 @@ const appkit = createAppKit({
 // settles. Re-inject redirect onto the SignClient's metadata after init so
 // the next session proposal carries it. populateAppMetadata() (called during
 // SignClient init) preserves any field it receives, so this survives.
-appkit.getUniversalProvider().then((provider) => {
-  const client = provider?.client as
-    | { metadata?: Record<string, unknown> }
-    | undefined;
-  if (client?.metadata) {
-    client.metadata = { ...client.metadata, redirect: REDIRECT };
-  }
-}).catch((error) => {
-  console.error("[appkit-runtime] failed to inject WC redirect", error);
-});
+export const walletConnectReady: Promise<void> = appkit
+  .getUniversalProvider()
+  .then((provider) => {
+    const client = provider?.client as
+      | { metadata?: Record<string, unknown> }
+      | undefined;
+    if (client?.metadata) {
+      client.metadata = { ...client.metadata, redirect: REDIRECT };
+    }
+  })
+  .catch((error) => {
+    console.error("[appkit-runtime] failed to inject WC redirect", error);
+  });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
@@ -222,6 +225,33 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// The Connect entry point stays disabled until the UniversalProvider is
+// initialised and `redirect` has been re-injected into the SignClient
+// metadata — otherwise a very early tap could open a session proposal without
+// the Telegram return URL (race condition).
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void walletConnectReady.then(() => {
+      if (active) setReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!ready) {
+    return (
+      <button
+        disabled
+        className="w-full rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground"
+      >
+        Preparing wallet…
+      </button>
+    );
+  }
+
   return <AppKitButton {...(balance ? { balance } : {})} />;
 }
