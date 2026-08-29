@@ -10,11 +10,12 @@
 // AppKit/WalletConnect is fully responsible for building wallet launch URLs.
 // The Telegram bridge below only transports them; it never inspects, rewrites
 // or re-encodes a WalletConnect URI, and it knows nothing about any wallet.
-import type { ReactNode } from "react";
+import { use, type ReactNode } from "react";
 import { WagmiProvider } from "wagmi";
 import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
+import UniversalProvider from "@walletconnect/universal-provider";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 
 // --- Telegram Mini App support -------------------------------------------
@@ -55,48 +56,78 @@ function patchTelegramWindowOpen() {
 
 patchTelegramWindowOpen();
 
-// Module scope, exactly once — not inside a React component or useEffect.
-// cookieStorage keeps the WalletConnect session recoverable in the Telegram
-// WebView, where localStorage can be wiped when the Mini App is re-opened
-// after the wallet redirect.
-const wagmiAdapter = new WagmiAdapter({
-  networks,
-  projectId,
-  ssr: true,
-  storage: createStorage({ storage: cookieStorage }),
-});
-
-createAppKit({
-  // Type-only mismatch under exactOptionalPropertyTypes (optional `namespace`).
-  // Runtime value stays the real WagmiAdapter so connectors register correctly.
-  // @ts-expect-error -- see above
-  adapters: [wagmiAdapter],
-  networks,
-  projectId,
-  metadata: {
-    name: "AZOX Gateway",
-    description: "AZOX Gaming Hub",
-    // Published origin — must match the deployed app, not a preview URL.
-    url: APP_URL,
-    icons: [`${APP_URL}/favicon.png`],
-    // WalletConnect honours metadata.redirect at session proposal time (it
-    // tells the wallet where to send the user back after approval). It is
-    // missing from AppKit's Metadata type in this version, hence the cast.
-    ...({
-      redirect: { native: "", universal: TELEGRAM_APP_URL || APP_URL },
-    } as Record<string, unknown>),
+// --- WalletConnect session metadata ---------------------------------------
+// AppKit 1.8.23's initializeUniversalAdapter() rebuilds this metadata
+// field-by-field (name/description/url/icons only) and DROPS `redirect`
+// before calling UniversalProvider.init(). The redirect tells the wallet
+// where to return the user after session approval; without it the approved
+// session never reaches back into the Telegram Mini App. We therefore create
+// the ONE UniversalProvider ourselves — with the full metadata — and hand it
+// to createAppKit via its supported `universalProvider` option
+// (appkit-base-client: `options.universalProvider ?? UniversalProvider.init(...)`).
+// UniversalProvider.createClient() forwards `metadata` verbatim into
+// SignClient.init(), so `redirect` survives into SignClient.metadata and into
+// every session proposal's proposer.metadata.
+const wcMetadata = {
+  name: "AZOX Gateway",
+  description: "AZOX Gaming Hub",
+  // Published origin — must match the deployed app, not a preview URL.
+  url: APP_URL,
+  icons: [`${APP_URL}/favicon.png`],
+  redirect: {
+    native: "",
+    universal: TELEGRAM_APP_URL || APP_URL,
   },
-  features: { analytics: false },
-});
+};
+
+// Assigned exactly once by the async init below.
+let wagmiAdapter: WagmiAdapter | null = null;
+
+// Exactly ONE UniversalProvider, ONE WagmiAdapter, ONE createAppKit — created
+// in that order, at module scope (not inside a component or useEffect).
+// Consumers suspend on this promise via React `use()`, so nothing renders
+// (and no wallet flow can start) before initialization completes.
+const appKitReady: Promise<void> = (async () => {
+  const universalProvider = await UniversalProvider.init({
+    projectId,
+    metadata: wcMetadata,
+  });
+
+  // cookieStorage keeps the WalletConnect session recoverable in the Telegram
+  // WebView, where localStorage can be wiped when the Mini App is re-opened
+  // after the wallet redirect.
+  wagmiAdapter = new WagmiAdapter({
+    networks,
+    projectId,
+    ssr: true,
+    storage: createStorage({ storage: cookieStorage }),
+  });
+
+  createAppKit({
+    // Type-only mismatch under exactOptionalPropertyTypes (optional `namespace`).
+    // Runtime value stays the real WagmiAdapter so connectors register correctly.
+    // @ts-expect-error -- see above
+    adapters: [wagmiAdapter],
+    networks,
+    projectId,
+    // The SAME provider initialized above — its SignClient carries the
+    // redirect metadata that AppKit would otherwise strip.
+    universalProvider,
+    metadata: wcMetadata,
+    features: { analytics: false },
+  });
+})();
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
+  use(appKitReady);
   return (
-    <WagmiProvider config={wagmiAdapter.wagmiConfig} reconnectOnMount>
+    <WagmiProvider config={wagmiAdapter!.wagmiConfig} reconnectOnMount>
       {children}
     </WagmiProvider>
   );
 }
 
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
+  use(appKitReady);
   return <AppKitButton {...(balance ? { balance } : {})} />;
 }
