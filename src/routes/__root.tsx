@@ -172,10 +172,9 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
-        {/* Deferred: still executes before hydration (so the Mini App API is
-            ready for code that needs it) without blocking first paint in
-            ordinary browsers. */}
-        <script src="https://telegram.org/js/telegram-web-app.js" defer />
+        {/* Loaded synchronously (baseline behaviour): the Telegram WebApp
+            bridge must exist before the wallet launch bridge is installed. */}
+        <script src="https://telegram.org/js/telegram-web-app.js" />
 
         <HeadContent />
       </head>

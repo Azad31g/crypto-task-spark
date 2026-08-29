@@ -21,9 +21,8 @@ export const robinhoodTestnet = defineChain({
 // WalletConnect / Reown Project IDs are publishable client identifiers.
 export const projectId = "be9bcbf74fc2ea216bd558ee88a70feb";
 
-// Fallback only. The live metadata.url is always window.location.origin
-// (appkit-runtime.tsx is browser-only), so this value is never used at
-// runtime; it is kept in sync with the published origin for clarity.
+// Published AZOX origin used as AppKit/WalletConnect metadata.url. Wallets
+// display it and validate it, so it must be the deployed app origin.
 export const APP_URL = "https://crypto-task-spark.lovable.app";
 
 // Telegram Mini App start URL the wallet bounces the user back to after
