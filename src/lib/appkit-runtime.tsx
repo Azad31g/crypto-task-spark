@@ -15,7 +15,7 @@ import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
-import { isTelegramMiniApp } from "./telegram";
+
 
 // The origin actually serving the app. Wallets validate metadata.url against
 // it, so never hardcode a guess; APP_URL is only an SSR-time fallback.
@@ -206,7 +206,7 @@ const appkit = createAppKit({
   // Telegram's Android WebView cannot resolve wallet custom schemes, so ask
   // AppKit to prefer each wallet's registry HTTPS universal link there only.
   // Normal browsers keep AppKit's default behaviour untouched.
-  experimental_preferUniversalLinks: IS_TELEGRAM_ANDROID,
+  experimental_preferUniversalLinks: isTelegramAndroid(),
   features: { analytics: false },
 });
 
