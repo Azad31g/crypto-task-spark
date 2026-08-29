@@ -45,7 +45,7 @@ function patchTelegramWindowOpen() {
     }
     // HTTPS wallet universal links, http(s):// URLs, metamask://, trust://,
     // cbwallet://, phantom://, WalletConnect URLs and any other wallet URL.
-    return nativeOpen(href, ...rest);
+    return nativeOpen(href, ...(rest as Parameters<typeof nativeOpen>));
   }) as typeof window.open;
 }
 
