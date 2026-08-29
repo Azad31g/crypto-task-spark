@@ -7,184 +7,63 @@
 // only exports chain metadata plus a connector-free, read-only config used
 // during SSR — it must never create an adapter.
 //
-// AppKit/WalletConnect stays fully responsible for launching wallets: no URL
-// is rewritten, mapped, or routed through Telegram APIs. Only genuine
-// Telegram links are intercepted.
-import { useEffect, useState, type ReactNode } from "react";
-import { WagmiProvider, createStorage, noopStorage } from "wagmi";
+// AppKit/WalletConnect is fully responsible for building wallet launch URLs.
+// The Telegram bridge below only transports them; it never inspects, rewrites
+// or re-encodes a WalletConnect URI, and it knows nothing about any wallet.
+import type { ReactNode } from "react";
+import { WagmiProvider } from "wagmi";
+import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 
-
-// The origin actually serving the app. Wallets validate metadata.url against
-// it, so never hardcode a guess; APP_URL is only an SSR-time fallback.
-const RUNTIME_APP_URL =
-  typeof window !== "undefined" ? window.location.origin : APP_URL;
-
-// Telegram environment detection MUST agree with AppKit's own
-// CoreHelperUtil.isTelegram() (window.TelegramWebviewProxy / window.Telegram /
-// TelegramWebviewProxyProto). If AppKit thinks it is inside Telegram it
-// double-encodes the WC URI and returns '_blank' targets, so our launch path
-// has to make the exact same call. Evaluated lazily on every use — never a
-// module-scope snapshot, which could be taken before telegram-web-app.js
-// (loaded with `defer`) has run.
-function isAppKitTelegramEnv(): boolean {
-  if (typeof window === "undefined") return false;
-  const w = window as unknown as Record<string, unknown>;
-  return Boolean(w["TelegramWebviewProxy"] ?? w["Telegram"] ?? w["TelegramWebviewProxyProto"]);
-}
-
-function isTelegramAndroid(): boolean {
-  if (!isAppKitTelegramEnv()) return false;
-  return navigator.userAgent.toLowerCase().includes("android");
-}
-
-
-type TelegramLinkApi = {
+// --- Telegram Mini App support -------------------------------------------
+// Telegram's WebView does not implement window.open(): AppKit's deep link
+// silently no-ops, so the WalletConnect session is created but the wallet
+// never opens. Route link opening through the Telegram WebApp API instead.
+// Must run BEFORE createAppKit().
+type TgWebApp = {
+  openLink?: (url: string, opts?: { try_instant_view?: boolean }) => void;
   openTelegramLink?: (url: string) => void;
-  openLink?: (url: string) => void;
 };
 
-function isTelegramUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "tg:" ||
-      (url.protocol === "https:" &&
-        (url.hostname === "t.me" || url.hostname.endsWith(".t.me")))
-    );
-  } catch {
-    return false;
-  }
-}
-
-// @reown/appkit-controllers 1.8.23 CoreHelperUtil.formatNativeUrl() encodes
-// the WalletConnect URI twice whenever its own isTelegram() && isAndroid()
-// branch is taken — and it does so for BOTH the custom-scheme `redirect` and
-// the `redirectUniversalLink`. The wallet then receives a still-encoded
-// `wc%3A...` value it cannot parse, so it opens without any Connect request.
-// Repair that single case for ANY outer scheme (https:, metamask:, trust:, …),
-// never for genuine Telegram links, and never touching another parameter.
-function repairDoubleEncodedWcUri(value: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
-  if (isTelegramUrl(value)) return null;
-
-  const uriParam = url.searchParams.get("uri"); // already decoded once
-  if (!uriParam || uriParam.startsWith("wc:")) return null;
-
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(uriParam);
-  } catch {
-    return null;
-  }
-  if (!decoded.startsWith("wc:")) return null;
-
-  // Single-encoding via searchParams.set() restores a valid WC URI while
-  // leaving every other query parameter byte-identical.
-  url.searchParams.set("uri", decoded);
-  return url.toString();
-}
-
-
-// Inside a Telegram Mini App, the WebView cannot resolve wallet launches on
-// its own: HTTP(S) universal links must go through Telegram.WebApp.openLink()
-// (the working baseline behaviour) and genuine Telegram links through
-// openTelegramLink(). Custom wallet schemes (metamask://, trust://, ...) are
-// handed to openLink() too, with a native window.open() fallback. Outside
-// Telegram, window.open is left completely untouched.
-function preserveNativeWalletLaunches(): void {
+function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
-
-  const nativeOpen = window.open.bind(window);
-  window.open = ((...args: Parameters<typeof window.open>) => {
-    const url = String(args[0] ?? "");
-    const webApp = (
-      window as unknown as { Telegram?: { WebApp?: TelegramLinkApi } }
-    ).Telegram?.WebApp;
-
-    if (!webApp || !isAppKitTelegramEnv()) {
-      return nativeOpen(...args);
-    }
-
-
-    if (webApp.openTelegramLink && isTelegramUrl(url)) {
-      try {
-        webApp.openTelegramLink(url);
-        return null;
-      } catch (error) {
-        console.error("[appkit-runtime] failed to open telegram link", error);
+  const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
+    ?.WebApp;
+  if (!tg) return;
+  window.open = ((url?: string | URL) => {
+    const href = String(url ?? "");
+    try {
+      if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
+        tg.openTelegramLink?.(href);
+      } else if (href.startsWith("http")) {
+        tg.openLink?.(href);
+      } else {
+        // Custom wallet schemes (metamask://, trust://, cbwallet://, …)
+        window.location.href = href;
       }
+    } catch {
+      window.location.href = href;
     }
-
-    // Repair AppKit 1.8.23's double-encoded `uri` param before launching.
-    const target = repairDoubleEncodedWcUri(url) ?? url;
-    const isHttp = /^https?:/i.test(target);
-
-    // Baseline (36b9149) behaviour: HTTP(S) universal links go through
-    // Telegram.openLink (this is what makes Android wallet launches work),
-    // while custom wallet schemes (metamask://, trust://, …) are navigated
-    // directly — Telegram.openLink cannot resolve them and produces
-    // ERR_UNKNOWN_URL_SCHEME. No wallet-name mapping is involved.
-    if (isHttp && webApp.openLink) {
-      try {
-        // Redacted diagnostics: schemes/flags only, never the WC URI.
-        console.debug("[appkit-runtime] wallet launch via Telegram.openLink", {
-          scheme: target.split(":")[0],
-          repaired: target !== url,
-        });
-        webApp.openLink(target);
-        return null;
-      } catch (error) {
-        console.error("[appkit-runtime] openLink failed, using native", error);
-      }
-    }
-
-    if (!isHttp) {
-      try {
-        console.debug("[appkit-runtime] wallet launch via location.href", {
-          scheme: target.split(":")[0],
-        });
-        window.location.href = target;
-        return null;
-      } catch (error) {
-        console.error("[appkit-runtime] scheme navigation failed", error);
-      }
-    }
-
-    return nativeOpen(target, args[1], args[2]);
+    return null;
   }) as typeof window.open;
 }
 
-
-preserveNativeWalletLaunches();
+patchTelegramWindowOpen();
 
 // Module scope, exactly once — not inside a React component or useEffect.
-// Explicit localStorage persistence survives the Telegram Android cold
-// relaunch after wallet approval; it is what reconnectOnMount reads on the
-// way back in. cookieStorage is deliberately NOT used (it needs the SSR
-// cookieToInitialState handshake an ssr:false adapter cannot provide).
+// cookieStorage keeps the WalletConnect session recoverable in the Telegram
+// WebView, where localStorage can be wiped when the Mini App is re-opened
+// after the wallet redirect.
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
-  ssr: false,
-  storage: createStorage({
-    storage:
-      typeof window !== "undefined" && window.localStorage
-        ? window.localStorage
-        : noopStorage,
-  }),
+  ssr: true,
+  storage: createStorage({ storage: cookieStorage }),
 });
 
-const REDIRECT = { native: "", universal: TELEGRAM_APP_URL };
-
-const appkit = createAppKit({
+createAppKit({
   // Type-only mismatch under exactOptionalPropertyTypes (optional `namespace`).
   // Runtime value stays the real WagmiAdapter so connectors register correctly.
   // @ts-expect-error -- see above
@@ -194,42 +73,18 @@ const appkit = createAppKit({
   metadata: {
     name: "AZOX Gateway",
     description: "AZOX Gaming Hub",
-    // Must match the origin actually serving the app (verified at runtime).
-    url: RUNTIME_APP_URL,
-    icons: [`${RUNTIME_APP_URL}/favicon.png`],
-    // WalletConnect honours metadata.redirect at session proposal time: it tells
-    // the wallet where to send the user back after approval, so the pending
-    // WalletConnect session can settle while the Mini App is still alive.
-    // AppKit 1.8.23's Metadata type omits this field, hence the cast.
-    ...({ redirect: REDIRECT } as Record<string, unknown>),
+    // Published origin — must match the deployed app, not a preview URL.
+    url: APP_URL,
+    icons: [`${APP_URL}/favicon.png`],
+    // WalletConnect honours metadata.redirect at session proposal time (it
+    // tells the wallet where to send the user back after approval). It is
+    // missing from AppKit's Metadata type in this version, hence the cast.
+    ...({
+      redirect: { native: "", universal: TELEGRAM_APP_URL || APP_URL },
+    } as Record<string, unknown>),
   },
-  // Telegram's Android WebView cannot resolve wallet custom schemes, so ask
-  // AppKit to prefer each wallet's registry HTTPS universal link there only.
-  // Normal browsers keep AppKit's default behaviour untouched.
-  experimental_preferUniversalLinks: isTelegramAndroid(),
   features: { analytics: false },
 });
-
-// AppKit 1.8.23's initializeUniversalAdapter() rebuilds metadata as
-// { name, description, url, icons } before initialising UniversalProvider,
-// silently dropping `redirect`. The SignClient therefore never learns the
-// return URL, so the wallet keeps the user and the Mini App session never
-// settles. Re-inject redirect onto the SignClient's metadata after init so
-// the next session proposal carries it. populateAppMetadata() (called during
-// SignClient init) preserves any field it receives, so this survives.
-export const walletConnectReady: Promise<void> = appkit
-  .getUniversalProvider()
-  .then((provider) => {
-    const client = provider?.client as
-      | { metadata?: Record<string, unknown> }
-      | undefined;
-    if (client?.metadata) {
-      client.metadata = { ...client.metadata, redirect: REDIRECT };
-    }
-  })
-  .catch((error) => {
-    console.error("[appkit-runtime] failed to inject WC redirect", error);
-  });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
@@ -239,33 +94,6 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// The Connect entry point stays disabled until the UniversalProvider is
-// initialised and `redirect` has been re-injected into the SignClient
-// metadata — otherwise a very early tap could open a session proposal without
-// the Telegram return URL (race condition).
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void walletConnectReady.then(() => {
-      if (active) setReady(true);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (!ready) {
-    return (
-      <button
-        disabled
-        className="w-full rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground"
-      >
-        Preparing wallet…
-      </button>
-    );
-  }
-
   return <AppKitButton {...(balance ? { balance } : {})} />;
 }
