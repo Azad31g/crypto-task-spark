@@ -59,12 +59,13 @@ function isTelegramUrl(value: string): boolean {
   }
 }
 
-// @reown/appkit-controllers 1.8.23 CoreHelperUtil.formatNativeUrl()
-// double-encodes the WalletConnect URI on Telegram Android, producing
-// `<wallet-universal-link>/wc?uri=wc%253A...`. The wallet then receives a
-// still-encoded `wc%3A...` value it cannot parse, so it opens without any
-// Connect request. Repair only that case: HTTPS launch URL (never tg:/t.me)
-// whose `uri` param decodes once more into a valid `wc:` URI.
+// @reown/appkit-controllers 1.8.23 CoreHelperUtil.formatNativeUrl() encodes
+// the WalletConnect URI twice whenever its own isTelegram() && isAndroid()
+// branch is taken — and it does so for BOTH the custom-scheme `redirect` and
+// the `redirectUniversalLink`. The wallet then receives a still-encoded
+// `wc%3A...` value it cannot parse, so it opens without any Connect request.
+// Repair that single case for ANY outer scheme (https:, metamask:, trust:, …),
+// never for genuine Telegram links, and never touching another parameter.
 function repairDoubleEncodedWcUri(value: string): string | null {
   let url: URL;
   try {
@@ -72,7 +73,7 @@ function repairDoubleEncodedWcUri(value: string): string | null {
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || isTelegramUrl(value)) return null;
+  if (isTelegramUrl(value)) return null;
 
   const uriParam = url.searchParams.get("uri"); // already decoded once
   if (!uriParam || uriParam.startsWith("wc:")) return null;
@@ -90,6 +91,7 @@ function repairDoubleEncodedWcUri(value: string): string | null {
   url.searchParams.set("uri", decoded);
   return url.toString();
 }
+
 
 // Inside a Telegram Mini App, the WebView cannot resolve wallet launches on
 // its own: HTTP(S) universal links must go through Telegram.WebApp.openLink()
