@@ -111,8 +111,14 @@ function preserveNativeWalletLaunches(): void {
 
     // Repair AppKit 1.8.23's double-encoded `uri` param before launching.
     const target = repairDoubleEncodedWcUri(url) ?? url;
+    const isHttp = /^https?:/i.test(target);
 
-    if (webApp.openLink) {
+    // Baseline (36b9149) behaviour: HTTP(S) universal links go through
+    // Telegram.openLink (this is what makes Android wallet launches work),
+    // while custom wallet schemes (metamask://, trust://, …) are navigated
+    // directly — Telegram.openLink cannot resolve them and produces
+    // ERR_UNKNOWN_URL_SCHEME. No wallet-name mapping is involved.
+    if (isHttp && webApp.openLink) {
       try {
         // Redacted diagnostics: schemes/flags only, never the WC URI.
         console.debug("[appkit-runtime] wallet launch via Telegram.openLink", {
@@ -123,6 +129,18 @@ function preserveNativeWalletLaunches(): void {
         return null;
       } catch (error) {
         console.error("[appkit-runtime] openLink failed, using native", error);
+      }
+    }
+
+    if (!isHttp) {
+      try {
+        console.debug("[appkit-runtime] wallet launch via location.href", {
+          scheme: target.split(":")[0],
+        });
+        window.location.href = target;
+        return null;
+      } catch (error) {
+        console.error("[appkit-runtime] scheme navigation failed", error);
       }
     }
 
