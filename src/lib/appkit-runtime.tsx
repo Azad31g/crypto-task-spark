@@ -22,13 +22,24 @@ import { isTelegramMiniApp } from "./telegram";
 const RUNTIME_APP_URL =
   typeof window !== "undefined" ? window.location.origin : APP_URL;
 
-function detectTelegramAndroid(): boolean {
+// Telegram environment detection MUST agree with AppKit's own
+// CoreHelperUtil.isTelegram() (window.TelegramWebviewProxy / window.Telegram /
+// TelegramWebviewProxyProto). If AppKit thinks it is inside Telegram it
+// double-encodes the WC URI and returns '_blank' targets, so our launch path
+// has to make the exact same call. Evaluated lazily on every use — never a
+// module-scope snapshot, which could be taken before telegram-web-app.js
+// (loaded with `defer`) has run.
+function isAppKitTelegramEnv(): boolean {
   if (typeof window === "undefined") return false;
-  if (!isTelegramMiniApp()) return false;
+  const w = window as unknown as Record<string, unknown>;
+  return Boolean(w["TelegramWebviewProxy"] ?? w["Telegram"] ?? w["TelegramWebviewProxyProto"]);
+}
+
+function isTelegramAndroid(): boolean {
+  if (!isAppKitTelegramEnv()) return false;
   return navigator.userAgent.toLowerCase().includes("android");
 }
 
-const IS_TELEGRAM_ANDROID = detectTelegramAndroid();
 
 type TelegramLinkApi = {
   openTelegramLink?: (url: string) => void;
