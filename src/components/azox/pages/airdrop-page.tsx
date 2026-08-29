@@ -540,8 +540,18 @@ export function AirdropPage() {
             </p>
             <button
               onClick={() => {
-                // UI-only: the stored registration stays valid forever.
+                // UI-only reset. The on-chain registration and the Supabase
+                // row stay untouched; we only drop the local display state
+                // that keeps the Eligible card visible, so the AppKit
+                // "Connect Wallet" entry point comes back and another wallet
+                // can be chosen. No automatic re-registration, no fee.
                 disconnect();
+                setDbRegistration(null);
+                setSyncFailed(false);
+                setLastTxHash(null);
+                setFlowError(null);
+                setConfetti(false);
+                resetTx();
               }}
               style={{
                 marginTop: 12,

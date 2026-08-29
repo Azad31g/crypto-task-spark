@@ -10,7 +10,7 @@
 // AppKit/WalletConnect stays fully responsible for launching wallets: no URL
 // is rewritten, mapped, or routed through Telegram APIs. Only genuine
 // Telegram links are intercepted.
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { WagmiProvider, createStorage, noopStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
@@ -111,8 +111,14 @@ function preserveNativeWalletLaunches(): void {
 
     // Repair AppKit 1.8.23's double-encoded `uri` param before launching.
     const target = repairDoubleEncodedWcUri(url) ?? url;
+    const isHttp = /^https?:/i.test(target);
 
-    if (webApp.openLink) {
+    // Baseline (36b9149) behaviour: HTTP(S) universal links go through
+    // Telegram.openLink (this is what makes Android wallet launches work),
+    // while custom wallet schemes (metamask://, trust://, …) are navigated
+    // directly — Telegram.openLink cannot resolve them and produces
+    // ERR_UNKNOWN_URL_SCHEME. No wallet-name mapping is involved.
+    if (isHttp && webApp.openLink) {
       try {
         // Redacted diagnostics: schemes/flags only, never the WC URI.
         console.debug("[appkit-runtime] wallet launch via Telegram.openLink", {
@@ -123,6 +129,18 @@ function preserveNativeWalletLaunches(): void {
         return null;
       } catch (error) {
         console.error("[appkit-runtime] openLink failed, using native", error);
+      }
+    }
+
+    if (!isHttp) {
+      try {
+        console.debug("[appkit-runtime] wallet launch via location.href", {
+          scheme: target.split(":")[0],
+        });
+        window.location.href = target;
+        return null;
+      } catch (error) {
+        console.error("[appkit-runtime] scheme navigation failed", error);
       }
     }
 
@@ -185,16 +203,19 @@ const appkit = createAppKit({
 // settles. Re-inject redirect onto the SignClient's metadata after init so
 // the next session proposal carries it. populateAppMetadata() (called during
 // SignClient init) preserves any field it receives, so this survives.
-appkit.getUniversalProvider().then((provider) => {
-  const client = provider?.client as
-    | { metadata?: Record<string, unknown> }
-    | undefined;
-  if (client?.metadata) {
-    client.metadata = { ...client.metadata, redirect: REDIRECT };
-  }
-}).catch((error) => {
-  console.error("[appkit-runtime] failed to inject WC redirect", error);
-});
+export const walletConnectReady: Promise<void> = appkit
+  .getUniversalProvider()
+  .then((provider) => {
+    const client = provider?.client as
+      | { metadata?: Record<string, unknown> }
+      | undefined;
+    if (client?.metadata) {
+      client.metadata = { ...client.metadata, redirect: REDIRECT };
+    }
+  })
+  .catch((error) => {
+    console.error("[appkit-runtime] failed to inject WC redirect", error);
+  });
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
@@ -204,6 +225,33 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// The Connect entry point stays disabled until the UniversalProvider is
+// initialised and `redirect` has been re-injected into the SignClient
+// metadata — otherwise a very early tap could open a session proposal without
+// the Telegram return URL (race condition).
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void walletConnectReady.then(() => {
+      if (active) setReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!ready) {
+    return (
+      <button
+        disabled
+        className="w-full rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground"
+      >
+        Preparing wallet…
+      </button>
+    );
+  }
+
   return <AppKitButton {...(balance ? { balance } : {})} />;
 }
