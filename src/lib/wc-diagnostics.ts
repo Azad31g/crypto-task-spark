@@ -356,32 +356,107 @@ function relayState(provider: unknown) {
   };
 }
 
-// --- Per-attempt topic correlation state (observation only) ----------------
+// --- Current-attempt identity (observation only) ---------------------------
+// Verified against the INSTALLED @walletconnect/sign-client 2.23.7 source:
+//
+//  * engine.connect() creates the pairing, then stores the proposal via
+//    setProposal(id, { ..., pairingTopic }). The proposal Store is public
+//    (`client.proposal`), so the CURRENT attempt's pairing topic is readable
+//    with a plain getAll() — no monkey-patching, no engine instrumentation.
+//    Reading a Store is side-effect free.
+//  * engine.onSessionProposeResponse() derives the session topic from the
+//    responder public key and records it in `engine.pendingSessions`
+//    (Map<proposalId, { sessionTopic, pairingTopic }>). That Map is the only
+//    observable place where the proposer LEARNS the session topic; it is an
+//    engine-internal field but readable without patching anything.
+//  * relayer emits `relayer_message` with { topic, message, publishedAt, ... }
+//    (topic always present), but `relayer_message_ack` emits the raw JSON-RPC
+//    ack `{ id, result }` — it has NO topic, ever.
+
+type ProposalRecord = {
+  id?: number;
+  pairingTopic?: string;
+  expiryTimestamp?: number;
+};
+
+function currentProposal(provider: unknown): ProposalRecord | null {
+  try {
+    const store = (
+      provider as {
+        client?: { proposal?: { getAll?: () => ProposalRecord[] } };
+      }
+    )?.client?.proposal;
+    const all = store?.getAll?.() ?? [];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const live = all.filter(
+      (p) => !p?.expiryTimestamp || p.expiryTimestamp > nowSec,
+    );
+    const pool = live.length > 0 ? live : all;
+    if (pool.length === 0) return null;
+    // Most recent proposal = highest expiry (proposals all share the same TTL).
+    return pool.reduce((a, b) =>
+      (b?.expiryTimestamp ?? 0) >= (a?.expiryTimestamp ?? 0) ? b : a,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function pendingSessionTopics(provider: unknown): string[] {
+  try {
+    const pending = (
+      provider as {
+        client?: {
+          engine?: { pendingSessions?: Map<number, { sessionTopic?: string }> };
+        };
+      }
+    )?.client?.engine?.pendingSessions;
+    if (!pending || typeof pending.forEach !== "function") return [];
+    const out: string[] = [];
+    pending.forEach((v) => {
+      const p = pfx(v?.sessionTopic);
+      if (p) out.push(p);
+    });
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function attemptIdentity(provider: unknown) {
+  const proposal = currentProposal(provider);
+  const pending = pendingSessionTopics(provider);
+  return {
+    // The CURRENT attempt's pairing topic, from the proposal store (never
+    // from the set of all persisted pairings).
+    currentPairingTopicPrefix: pfx(proposal?.pairingTopic),
+    currentPairingTopicKnown: Boolean(proposal?.pairingTopic),
+    currentProposalExists: Boolean(proposal),
+    // The session topic the PROPOSER derived, if onSessionProposeResponse ran.
+    sessionTopicPrefix: pending[pending.length - 1] ?? null,
+    sessionTopicKnown: pending.length > 0,
+    pendingSessionCount: pending.length,
+  };
+}
+
+// --- Per-attempt correlation state (observation only) ----------------------
 let attemptStartedAt: number | null = null;
-let subscriptionsAtAttemptStart: string[] = [];
-let attemptPairingPrefixes: string[] = [];
-let newSubscriptionPrefixes: string[] = [];
-let messagesOnPairingTopic = 0;
-let messagesOnNewTopics = 0;
-let acksOnPairingTopic = 0;
-let acksOnNewTopics = 0;
+let attemptProposeTopicPrefix: string | null = null;
+let attemptPairingTopicPrefix: string | null = null;
+let messagesWithTopic = 0;
+let messagesWithNoTopic = 0;
+let acksWithTopic = 0;
+let acksWithNoTopic = 0;
+let messagesOnCurrentPairingTopic = 0;
+let messagesOnSessionTopic = 0;
 
 function elapsedSinceAttempt() {
   return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
 }
 
-function correlate(topicPrefix: string | null) {
-  return {
-    matchesAttemptPairingTopic: topicPrefix
-      ? attemptPairingPrefixes.includes(topicPrefix)
-      : null,
-    matchesNewAttemptSubscription: topicPrefix
-      ? newSubscriptionPrefixes.includes(topicPrefix)
-      : null,
-    isNewSinceAttemptStart: topicPrefix
-      ? !subscriptionsAtAttemptStart.includes(topicPrefix)
-      : null,
-  };
+function currentPairingPrefix(provider: unknown): string | null {
+  return attemptIdentity(provider).currentPairingTopicPrefix ??
+    attemptPairingTopicPrefix;
 }
 
 /** SignClient success/expiry signals on the EXISTING provider.client. */
@@ -394,6 +469,7 @@ export function signClientWatch(provider: unknown) {
     diag(`signclient event: ${name}`, {
       ...providerSnapshot(provider),
       ...relayState(provider),
+      ...attemptIdentity(provider),
       ...(extra ?? {}),
     });
 
@@ -411,22 +487,34 @@ export function signClientWatch(provider: unknown) {
           diag("session_connect", {
             ...providerSnapshot(provider),
             ...relayState(provider),
+            ...attemptIdentity(provider),
+            proposeTopicPrefix: attemptProposeTopicPrefix,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
-            newSubscriptionsDuringAttempt: newSubscriptionPrefixes.length,
           });
           return;
         }
         if (name === "proposal_expire") {
           log(name, {
+            proposeTopicPrefix: attemptProposeTopicPrefix,
+            attemptPairingTopicPrefixAtStart: attemptPairingTopicPrefix,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
-            subscriptionsAtAttemptStart: subscriptionsAtAttemptStart.length,
-            attemptPairingTopicPrefixes: attemptPairingPrefixes,
-            newSubscriptionsDuringAttempt: newSubscriptionPrefixes.length,
-            newSubscriptionPrefixes,
-            messagesOnPairingTopic,
-            messagesOnNewTopics,
-            acksOnPairingTopic,
-            acksOnNewTopics,
+            messagesWithTopic,
+            messagesWithNoTopic,
+            acksWithTopic,
+            acksWithNoTopic,
+            messagesOnCurrentPairingTopic,
+            messagesOnSessionTopic,
+            // Explicit honesty guard: "the wallet sent nothing" may only be
+            // claimed when the current pairing topic is known AND no incoming
+            // message lacked a topic.
+            verdict:
+              !attemptIdentity(provider).currentPairingTopicKnown ||
+              messagesWithNoTopic > 0
+                ? "unable to determine"
+                : messagesOnCurrentPairingTopic === 0 &&
+                    messagesOnSessionTopic === 0
+                  ? "no incoming message on the current attempt topics"
+                  : "incoming message observed on the current attempt topics",
           });
           return;
         }
@@ -457,25 +545,48 @@ export function relayerWatch(provider: unknown) {
       relayer.on(name, (payload?: unknown) => {
         const extra: Record<string, unknown> = {};
         if (name === "relayer_message" || name === "relayer_message_ack") {
+          const rawTopic = (payload as { topic?: string } | undefined)?.topic;
+          const topicPresent = typeof rawTopic === "string" && rawTopic !== "";
           // ONLY an 8-char topic prefix — never the message payload.
-          const topicPrefix = pfx(
-            (payload as { topic?: string } | undefined)?.topic,
-          );
-          const flags = correlate(topicPrefix);
+          const topicPrefix = topicPresent ? pfx(rawTopic) : null;
+          const ident = attemptIdentity(provider);
           if (name === "relayer_message") {
-            if (flags.matchesAttemptPairingTopic) messagesOnPairingTopic += 1;
-            if (flags.matchesNewAttemptSubscription) messagesOnNewTopics += 1;
+            if (topicPresent) {
+              messagesWithTopic += 1;
+              if (
+                topicPrefix &&
+                topicPrefix === currentPairingPrefix(provider)
+              ) {
+                messagesOnCurrentPairingTopic += 1;
+              }
+              if (topicPrefix && topicPrefix === ident.sessionTopicPrefix) {
+                messagesOnSessionTopic += 1;
+              }
+            } else {
+              // No topic on the event -> never increment a topic counter.
+              messagesWithNoTopic += 1;
+            }
+          } else if (topicPresent) {
+            acksWithTopic += 1;
           } else {
-            if (flags.matchesAttemptPairingTopic) acksOnPairingTopic += 1;
-            if (flags.matchesNewAttemptSubscription) acksOnNewTopics += 1;
+            acksWithNoTopic += 1;
           }
+          extra["topicPresent"] = topicPresent;
           extra["topicPrefix"] = topicPrefix;
-          Object.assign(extra, flags);
+          extra["matchesCurrentPairingTopic"] = topicPresent
+            ? topicPrefix === currentPairingPrefix(provider)
+            : null;
+          extra["matchesSessionTopic"] = topicPresent
+            ? topicPrefix === ident.sessionTopicPrefix
+            : null;
           extra["elapsedMsSinceConnectionAttempt"] = elapsedSinceAttempt();
-          extra["messagesOnPairingTopic"] = messagesOnPairingTopic;
-          extra["messagesOnNewTopics"] = messagesOnNewTopics;
-          extra["acksOnPairingTopic"] = acksOnPairingTopic;
-          extra["acksOnNewTopics"] = acksOnNewTopics;
+          extra["messagesWithTopic"] = messagesWithTopic;
+          extra["messagesWithNoTopic"] = messagesWithNoTopic;
+          extra["acksWithTopic"] = acksWithTopic;
+          extra["acksWithNoTopic"] = acksWithNoTopic;
+          extra["messagesOnCurrentPairingTopic"] = messagesOnCurrentPairingTopic;
+          extra["messagesOnSessionTopic"] = messagesOnSessionTopic;
+          Object.assign(extra, ident);
         }
         diag(`relayer event: ${name}`, {
           ...relayState(provider),
@@ -496,30 +607,28 @@ export function relayerWatch(provider: unknown) {
       if (tag !== 1100) return;
       attemptStartedAt = Date.now();
       const snap = relayState(provider);
-      subscriptionsAtAttemptStart = snap.subscriptionTopicPrefixes;
-      attemptPairingPrefixes = snap.pairingTopicPrefixes;
-      const publishTopicPrefix = pfx(
+      const ident = attemptIdentity(provider);
+      // In the installed engine, wc_sessionPropose is published on the PAIRING
+      // topic (engine.sendProposeSession -> sendRequest on proposal.pairingTopic).
+      attemptProposeTopicPrefix = pfx(
         (payload as { topic?: string } | undefined)?.topic,
       );
-      if (
-        publishTopicPrefix &&
-        !attemptPairingPrefixes.includes(publishTopicPrefix)
-      ) {
-        attemptPairingPrefixes = [
-          ...attemptPairingPrefixes,
-          publishTopicPrefix,
-        ];
-      }
-      newSubscriptionPrefixes = [];
-      messagesOnPairingTopic = 0;
-      messagesOnNewTopics = 0;
-      acksOnPairingTopic = 0;
-      acksOnNewTopics = 0;
+      attemptPairingTopicPrefix = ident.currentPairingTopicPrefix;
+      messagesWithTopic = 0;
+      messagesWithNoTopic = 0;
+      acksWithTopic = 0;
+      acksWithNoTopic = 0;
+      messagesOnCurrentPairingTopic = 0;
+      messagesOnSessionTopic = 0;
       diag("connection-attempt-start", {
         ...providerSnapshot(provider),
-        ...snap,
-        attemptPairingTopicPrefixes: attemptPairingPrefixes,
-        proposeTopicPrefix: publishTopicPrefix,
+        ...ident,
+        proposeTopicPrefix: attemptProposeTopicPrefix,
+        proposeTopicIsCurrentPairingTopic:
+          attemptProposeTopicPrefix !== null &&
+          attemptProposeTopicPrefix === ident.currentPairingTopicPrefix,
+        subscriptionCount: snap.subscriptionCount,
+        relayConnected: snap.relayConnected,
       });
     });
   } catch {
@@ -529,13 +638,9 @@ export function relayerWatch(provider: unknown) {
 
 /**
  * Subscriber events (installed @walletconnect/core 2.23.7 names).
- * NOTE: `subscription_created` is only a CORRELATION signal that some topic
- * subscription appeared. It does NOT by itself prove that the engine's
- * onSessionProposeResponse() ran: in the installed sign-client that handler's
- * only safely observable public consequence is a NEW subscriber subscription
- * on the derived session topic (plus pairing activation). Compare the
- * post-approval topic prefixes against `subscriptionsAtAttemptStart` to tell
- * the pairing subscription apart from a session-topic subscription.
+ * Correlation only: a `subscription_created` is NOT evidence of the session
+ * topic (re-subscriptions after a relayer reconnect create many). The session
+ * topic is reported separately from `engine.pendingSessions`.
  */
 export function subscriberWatch(provider: unknown) {
   if (!AZOX_WC_DIAGNOSTICS) return;
@@ -552,34 +657,24 @@ export function subscriberWatch(provider: unknown) {
     try {
       subscriber.on(name, (payload?: unknown) => {
         const before = relayState(provider).subscriptionCount;
-        // Counts are read synchronously; the "after" read happens on the next
-        // microtask so the subscriber map has settled. No mutation occurs.
-        const topicPrefix = pfx(
-          (payload as { topic?: string } | undefined)?.topic,
-        );
-        const isNew = topicPrefix
-          ? !subscriptionsAtAttemptStart.includes(topicPrefix)
-          : null;
-        if (
-          name === "subscription_created" &&
-          topicPrefix &&
-          isNew &&
-          !newSubscriptionPrefixes.includes(topicPrefix)
-        ) {
-          newSubscriptionPrefixes = [...newSubscriptionPrefixes, topicPrefix];
-        }
+        const rawTopic = (payload as { topic?: string } | undefined)?.topic;
+        const topicPresent = typeof rawTopic === "string" && rawTopic !== "";
+        const topicPrefix = topicPresent ? pfx(rawTopic) : null;
         queueMicrotask(() => {
           const after = relayState(provider);
+          const ident = attemptIdentity(provider);
           diag(`subscriber event: ${name}`, {
             subscriptionCountBefore: before,
             subscriptionCountAfter: after.subscriptionCount,
+            topicPresent,
             topicPrefix,
-            isNewSinceAttemptStart: isNew,
-            matchesAttemptPairingTopic: topicPrefix
-              ? attemptPairingPrefixes.includes(topicPrefix)
+            matchesCurrentPairingTopic: topicPresent
+              ? topicPrefix === ident.currentPairingTopicPrefix
               : null,
-            subscriptionsAtAttemptStart: subscriptionsAtAttemptStart.length,
-            newSubscriptionsDuringAttempt: newSubscriptionPrefixes.length,
+            matchesSessionTopic: topicPresent
+              ? topicPrefix === ident.sessionTopicPrefix
+              : null,
+            ...ident,
             relayConnected: after.relayConnected,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
           });
@@ -590,5 +685,3 @@ export function subscriberWatch(provider: unknown) {
     }
   }
 }
-
-
