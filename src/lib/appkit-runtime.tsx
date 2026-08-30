@@ -23,6 +23,7 @@ import {
   attachProviderDiagnostics,
   diag,
   providerSnapshot,
+  settleWatch,
   storageKeySnapshot,
   wagmiSnapshot,
 } from "./wc-diagnostics";
@@ -115,6 +116,7 @@ const appKitReady: Promise<void> = (async () => {
     storage: storageKeySnapshot(),
   });
   attachProviderDiagnostics(universalProvider);
+  settleWatch(universalProvider);
   attachLifecycleDiagnostics(() => providerSnapshot(universalProvider));
   // ------------------------------------------------------------------------
 
@@ -179,7 +181,8 @@ const appKitReady: Promise<void> = (async () => {
   diag("staleness (before reconnect)", {
     configuredChainIds: cfg.chains.map((c) => c.id),
     requestedChains: storageSnap.requestedChains,
-    restoredSessionChainIds: providerSnapshot(universalProvider).chainIds,
+    restoredSessionChainIds:
+      providerSnapshot(universalProvider).eip155ChainIds,
     connectorExists: Boolean(wcConnector),
     connectorId: wcConnector?.id ?? null,
     providerSessionExists: Boolean(universalProvider.session),
