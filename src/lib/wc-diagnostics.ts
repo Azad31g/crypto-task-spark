@@ -106,8 +106,8 @@ export function wagmiSnapshot(config: unknown) {
           (e as { connector?: { id?: string } })?.connector?.id ?? "unknown",
       ),
       chainId: state?.chainId ?? null,
-      accountCount: entries.reduce(
-        (n, e) => n + (((e as { accounts?: unknown[] })?.accounts ?? []).length),
+      accountCount: entries.reduce<number>(
+        (n, e) => n + ((e as { accounts?: unknown[] })?.accounts ?? []).length,
         0,
       ),
     };
