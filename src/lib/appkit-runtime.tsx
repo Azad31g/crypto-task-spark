@@ -95,12 +95,47 @@ const appKitReady: Promise<void> = (async () => {
 
   // cookieStorage keeps the WalletConnect session recoverable in the Telegram
   // WebView, where localStorage can be wiped when the Mini App is re-opened
-  // after the wallet redirect.
+  // after the wallet redirect. ONE storage instance, shared between the
+  // session-recovery write below and the WagmiAdapter.
+  const wagmiStorage = createStorage({ storage: cookieStorage });
+
+  // Session recovery (installed-source proven):
+  // When Telegram recreates the Mini App page after the wallet approval, the
+  // original WalletConnectConnector.connect() promise is lost, so wagmi's
+  // `walletConnect.requestedChains` storage entry was never written. On the
+  // next load the UniversalProvider restores the REAL settled session, but
+  // WalletConnectConnector.isAuthorized() -> isChainsStale() reads an empty
+  // requestedChains list, concludes the chains are stale and calls
+  // provider.disconnect(), destroying the valid session.
+  // Recovery: if a settled eip155 session already exists, derive the approved
+  // chain IDs from session.namespaces.eip155.accounts (CAIP-10 strings like
+  // "eip155:46630:0x...") and persist them via the SAME wagmi storage under
+  // the SAME key the connector reads (`walletConnect.requestedChains`), so
+  // isChainsStale() === false and the normal reconnectOnMount path reuses
+  // the real session. Nothing else is written — no account/address/chainId/
+  // connection state; those are still created by the normal wagmi reconnect.
+  const restoredSession = universalProvider.session;
+  const restoredAccounts =
+    restoredSession?.namespaces?.["eip155"]?.accounts ?? [];
+  const restoredChainIds = Array.from(
+    new Set(
+      restoredAccounts
+        .map((account) => Number.parseInt(account.split(":")[1] ?? "", 10))
+        .filter((id) => Number.isFinite(id)),
+    ),
+  );
+  if (restoredSession && restoredChainIds.length > 0) {
+    await wagmiStorage.setItem(
+      "walletConnect.requestedChains",
+      restoredChainIds,
+    );
+  }
+
   wagmiAdapter = new WagmiAdapter({
     networks,
     projectId,
     ssr: true,
-    storage: createStorage({ storage: cookieStorage }),
+    storage: wagmiStorage,
   });
 
   createAppKit({
