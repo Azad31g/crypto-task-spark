@@ -219,6 +219,8 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   use(appKitReady);
   return (
     <WagmiProvider config={wagmiAdapter!.wagmiConfig} reconnectOnMount>
+      {/* TEMPORARY: renders nothing, observes useAccount only. */}
+      <WcDiagnosticsProbe />
       {children}
     </WagmiProvider>
   );
