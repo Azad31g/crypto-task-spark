@@ -108,6 +108,15 @@ const appKitReady: Promise<void> = (async () => {
   // session-recovery write below and the WagmiAdapter.
   const wagmiStorage = createStorage({ storage: cookieStorage });
 
+  // --- TEMPORARY diagnostics (observational only) -------------------------
+  diag("provider initialized", {
+    ...providerSnapshot(universalProvider),
+    storage: storageKeySnapshot(),
+  });
+  attachProviderDiagnostics(universalProvider);
+  attachLifecycleDiagnostics(() => providerSnapshot(universalProvider));
+  // ------------------------------------------------------------------------
+
   // Session recovery (installed-source proven):
   // When Telegram recreates the Mini App page after the wallet approval, the
   // original WalletConnectConnector.connect() promise is lost, so wagmi's
