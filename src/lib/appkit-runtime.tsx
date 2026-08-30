@@ -17,6 +17,15 @@ import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import UniversalProvider from "@walletconnect/universal-provider";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
+// TEMPORARY observational diagnostics (no behavior change).
+import {
+  attachLifecycleDiagnostics,
+  attachProviderDiagnostics,
+  diag,
+  providerSnapshot,
+  storageKeySnapshot,
+  wagmiSnapshot,
+} from "./wc-diagnostics";
 
 // --- Telegram Mini App support -------------------------------------------
 // Telegram's WebView does not implement window.open(): AppKit's deep link
