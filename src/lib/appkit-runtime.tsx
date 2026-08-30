@@ -169,6 +169,50 @@ const appKitReady: Promise<void> = (async () => {
     metadata: wcMetadata,
     features: { analytics: false },
   });
+
+  // --- TEMPORARY diagnostics (observational only) -------------------------
+  // Never calls isAuthorized()/connect()/disconnect(): those have side effects.
+  const cfg = wagmiAdapter.wagmiConfig;
+  const wcConnector = cfg.connectors.find((c) => c.id === "walletConnect");
+  const storageSnap = storageKeySnapshot();
+  diag("staleness (before reconnect)", {
+    configuredChainIds: cfg.chains.map((c) => c.id),
+    requestedChains: storageSnap.requestedChains,
+    restoredSessionChainIds: providerSnapshot(universalProvider).chainIds,
+    connectorExists: Boolean(wcConnector),
+    connectorId: wcConnector?.id ?? null,
+    providerSessionExists: Boolean(universalProvider.session),
+  });
+  diag("reconnect:start", {
+    ...wagmiSnapshot(cfg),
+    provider: providerSnapshot(universalProvider),
+  });
+  cfg.subscribe(
+    (s) => ({ status: s.status, size: s.connections.size, cur: s.current }),
+    (next, prev) => {
+      diag("wagmi state", {
+        statusBefore: prev.status,
+        statusAfter: next.status,
+        connectionsBefore: prev.size,
+        connectionsAfter: next.size,
+        ...wagmiSnapshot(cfg),
+        provider: providerSnapshot(universalProvider),
+      });
+      if (prev.status !== next.status && next.status === "connected") {
+        diag("reconnect:success", wagmiSnapshot(cfg));
+      }
+      if (prev.status === "reconnecting" && next.status === "disconnected") {
+        diag("reconnect:error", {
+          name: "ReconnectFailed",
+          message: "wagmi went reconnecting -> disconnected",
+          provider: providerSnapshot(universalProvider),
+          storage: storageKeySnapshot(),
+        });
+      }
+    },
+    { equalityFn: (a, b) => a.status === b.status && a.size === b.size && a.cur === b.cur },
+  );
+  // ------------------------------------------------------------------------
 })();
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
