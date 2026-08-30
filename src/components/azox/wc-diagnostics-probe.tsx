@@ -22,6 +22,7 @@ export function WcDiagnosticsProbe() {
       accountCount: account.addresses?.length ?? (account.address ? 1 : 0),
       connectorId: account.connector?.id ?? null,
     };
+    // No addresses are ever included in this payload.
     const key = JSON.stringify(payload);
     if (key === last.current) return;
     last.current = key;
