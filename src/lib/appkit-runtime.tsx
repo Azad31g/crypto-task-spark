@@ -26,6 +26,7 @@ import {
   storageKeySnapshot,
   wagmiSnapshot,
 } from "./wc-diagnostics";
+import { WcDiagnosticsProbe } from "../components/azox/wc-diagnostics-probe";
 
 // --- Telegram Mini App support -------------------------------------------
 // Telegram's WebView does not implement window.open(): AppKit's deep link
