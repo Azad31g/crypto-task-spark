@@ -319,36 +319,69 @@ function core(provider: unknown): AnyCore | undefined {
   return (provider as { client?: { core?: AnyCore } })?.client?.core;
 }
 
+const PREFIX_LEN = 8;
+function pfx(t: unknown): string | null {
+  const s = t == null ? "" : String(t);
+  return s ? `${s.slice(0, PREFIX_LEN)}…` : null;
+}
+
+function pairingPrefixes(provider: unknown): string[] {
+  try {
+    const pairings = core(provider)?.pairing?.getPairings?.() ?? [];
+    return pairings
+      .map((p) => pfx((p as { topic?: string })?.topic))
+      .filter((p): p is string => Boolean(p));
+  } catch {
+    return [];
+  }
+}
+
 function relayState(provider: unknown) {
   const c = core(provider);
   const sub = c?.relayer?.subscriber;
   let topicPrefixes: string[] = [];
   try {
     // Short prefixes only — never the full topic.
-    topicPrefixes = (sub?.topics ?? []).map((t) => `${String(t).slice(0, 8)}…`);
+    topicPrefixes = (sub?.topics ?? []).map((t) => pfx(t) as string);
   } catch {
     topicPrefixes = [];
   }
-  let pairingCount: number | null = null;
-  try {
-    pairingCount = c?.pairing?.getPairings?.().length ?? null;
-  } catch {
-    pairingCount = null;
-  }
+  const pairPrefixes = pairingPrefixes(provider);
   return {
     relayConnected: c?.relayer?.connected ?? null,
     subscriptionCount: sub?.length ?? topicPrefixes.length,
     subscriptionTopicPrefixes: topicPrefixes,
-    pairingCount,
+    pairingTopicPrefixes: pairPrefixes,
+    pairingCount: pairPrefixes.length,
   };
 }
 
-// Set when a wc_sessionPropose publish is observed (start of an attempt).
+// --- Per-attempt topic correlation state (observation only) ----------------
 let attemptStartedAt: number | null = null;
 let subscriptionsAtAttemptStart: string[] = [];
+let attemptPairingPrefixes: string[] = [];
+let newSubscriptionPrefixes: string[] = [];
+let messagesOnPairingTopic = 0;
+let messagesOnNewTopics = 0;
+let acksOnPairingTopic = 0;
+let acksOnNewTopics = 0;
 
 function elapsedSinceAttempt() {
   return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
+}
+
+function correlate(topicPrefix: string | null) {
+  return {
+    matchesAttemptPairingTopic: topicPrefix
+      ? attemptPairingPrefixes.includes(topicPrefix)
+      : null,
+    matchesNewAttemptSubscription: topicPrefix
+      ? newSubscriptionPrefixes.includes(topicPrefix)
+      : null,
+    isNewSinceAttemptStart: topicPrefix
+      ? !subscriptionsAtAttemptStart.includes(topicPrefix)
+      : null,
+  };
 }
 
 /** SignClient success/expiry signals on the EXISTING provider.client. */
@@ -379,6 +412,7 @@ export function signClientWatch(provider: unknown) {
             ...providerSnapshot(provider),
             ...relayState(provider),
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+            newSubscriptionsDuringAttempt: newSubscriptionPrefixes.length,
           });
           return;
         }
@@ -386,6 +420,13 @@ export function signClientWatch(provider: unknown) {
           log(name, {
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
             subscriptionsAtAttemptStart: subscriptionsAtAttemptStart.length,
+            attemptPairingTopicPrefixes: attemptPairingPrefixes,
+            newSubscriptionsDuringAttempt: newSubscriptionPrefixes.length,
+            newSubscriptionPrefixes,
+            messagesOnPairingTopic,
+            messagesOnNewTopics,
+            acksOnPairingTopic,
+            acksOnNewTopics,
           });
           return;
         }
@@ -415,10 +456,26 @@ export function relayerWatch(provider: unknown) {
     try {
       relayer.on(name, (payload?: unknown) => {
         const extra: Record<string, unknown> = {};
-        if (name === "relayer_message") {
+        if (name === "relayer_message" || name === "relayer_message_ack") {
           // ONLY an 8-char topic prefix — never the message payload.
-          const topic = (payload as { topic?: string } | undefined)?.topic;
-          extra["topicPrefix"] = topic ? `${String(topic).slice(0, 8)}…` : null;
+          const topicPrefix = pfx(
+            (payload as { topic?: string } | undefined)?.topic,
+          );
+          const flags = correlate(topicPrefix);
+          if (name === "relayer_message") {
+            if (flags.matchesAttemptPairingTopic) messagesOnPairingTopic += 1;
+            if (flags.matchesNewAttemptSubscription) messagesOnNewTopics += 1;
+          } else {
+            if (flags.matchesAttemptPairingTopic) acksOnPairingTopic += 1;
+            if (flags.matchesNewAttemptSubscription) acksOnNewTopics += 1;
+          }
+          extra["topicPrefix"] = topicPrefix;
+          Object.assign(extra, flags);
+          extra["elapsedMsSinceConnectionAttempt"] = elapsedSinceAttempt();
+          extra["messagesOnPairingTopic"] = messagesOnPairingTopic;
+          extra["messagesOnNewTopics"] = messagesOnNewTopics;
+          extra["acksOnPairingTopic"] = acksOnPairingTopic;
+          extra["acksOnNewTopics"] = acksOnNewTopics;
         }
         diag(`relayer event: ${name}`, {
           ...relayState(provider),
@@ -440,9 +497,29 @@ export function relayerWatch(provider: unknown) {
       attemptStartedAt = Date.now();
       const snap = relayState(provider);
       subscriptionsAtAttemptStart = snap.subscriptionTopicPrefixes;
+      attemptPairingPrefixes = snap.pairingTopicPrefixes;
+      const publishTopicPrefix = pfx(
+        (payload as { topic?: string } | undefined)?.topic,
+      );
+      if (
+        publishTopicPrefix &&
+        !attemptPairingPrefixes.includes(publishTopicPrefix)
+      ) {
+        attemptPairingPrefixes = [
+          ...attemptPairingPrefixes,
+          publishTopicPrefix,
+        ];
+      }
+      newSubscriptionPrefixes = [];
+      messagesOnPairingTopic = 0;
+      messagesOnNewTopics = 0;
+      acksOnPairingTopic = 0;
+      acksOnNewTopics = 0;
       diag("connection-attempt-start", {
         ...providerSnapshot(provider),
         ...snap,
+        attemptPairingTopicPrefixes: attemptPairingPrefixes,
+        proposeTopicPrefix: publishTopicPrefix,
       });
     });
   } catch {
@@ -477,19 +554,32 @@ export function subscriberWatch(provider: unknown) {
         const before = relayState(provider).subscriptionCount;
         // Counts are read synchronously; the "after" read happens on the next
         // microtask so the subscriber map has settled. No mutation occurs.
-        const topic = (payload as { topic?: string } | undefined)?.topic;
+        const topicPrefix = pfx(
+          (payload as { topic?: string } | undefined)?.topic,
+        );
+        const isNew = topicPrefix
+          ? !subscriptionsAtAttemptStart.includes(topicPrefix)
+          : null;
+        if (
+          name === "subscription_created" &&
+          topicPrefix &&
+          isNew &&
+          !newSubscriptionPrefixes.includes(topicPrefix)
+        ) {
+          newSubscriptionPrefixes = [...newSubscriptionPrefixes, topicPrefix];
+        }
         queueMicrotask(() => {
           const after = relayState(provider);
           diag(`subscriber event: ${name}`, {
             subscriptionCountBefore: before,
             subscriptionCountAfter: after.subscriptionCount,
-            topicPrefix: topic ? `${String(topic).slice(0, 8)}…` : null,
-            isNewSinceAttemptStart: topic
-              ? !subscriptionsAtAttemptStart.includes(
-                  `${String(topic).slice(0, 8)}…`,
-                )
+            topicPrefix,
+            isNewSinceAttemptStart: isNew,
+            matchesAttemptPairingTopic: topicPrefix
+              ? attemptPairingPrefixes.includes(topicPrefix)
               : null,
             subscriptionsAtAttemptStart: subscriptionsAtAttemptStart.length,
+            newSubscriptionsDuringAttempt: newSubscriptionPrefixes.length,
             relayConnected: after.relayConnected,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
           });
@@ -500,4 +590,5 @@ export function subscriberWatch(provider: unknown) {
     }
   }
 }
+
 
