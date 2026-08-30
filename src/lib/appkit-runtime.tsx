@@ -23,7 +23,9 @@ import {
   attachProviderDiagnostics,
   diag,
   providerSnapshot,
-  settleWatch,
+  relayerWatch,
+  signClientWatch,
+  subscriberWatch,
   storageKeySnapshot,
   wagmiSnapshot,
 } from "./wc-diagnostics";
@@ -116,7 +118,9 @@ const appKitReady: Promise<void> = (async () => {
     storage: storageKeySnapshot(),
   });
   attachProviderDiagnostics(universalProvider);
-  settleWatch(universalProvider);
+  signClientWatch(universalProvider);
+  relayerWatch(universalProvider);
+  subscriberWatch(universalProvider);
   attachLifecycleDiagnostics(() => providerSnapshot(universalProvider));
   // ------------------------------------------------------------------------
 
