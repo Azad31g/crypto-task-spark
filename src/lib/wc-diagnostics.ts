@@ -294,29 +294,210 @@ export function attachProviderDiagnostics(provider: unknown) {
   }
 }
 
-/**
- * Observation-only SignClient listeners on the EXISTING provider.client.
- * They log the event name plus a sanitized snapshot; no WalletConnect
- * operation is invoked from any listener.
- */
-export function settleWatch(provider: unknown) {
+// --- Transport-level, observation-only watchers ----------------------------
+// Event names below were verified against the INSTALLED sources:
+//   @walletconnect/core 2.23.7        -> relayer_* / subscription_* names
+//   @walletconnect/sign-client 2.23.7 -> session_connect / proposal_expire
+// `session_settle` is NOT a public SignClient event and is no longer used.
+//
+// None of these listeners call connect/disconnect/subscribe/unsubscribe/
+// publish/approve/set/delete, and none write storage.
+
+type AnyEmitter = {
+  on?: (event: string, cb: (...args: unknown[]) => void) => void;
+};
+
+type AnyCore = {
+  relayer?: AnyEmitter & {
+    connected?: boolean;
+    subscriber?: AnyEmitter & { length?: number; topics?: string[] };
+  };
+  pairing?: { getPairings?: () => unknown[] };
+};
+
+function core(provider: unknown): AnyCore | undefined {
+  return (provider as { client?: { core?: AnyCore } })?.client?.core;
+}
+
+function relayState(provider: unknown) {
+  const c = core(provider);
+  const sub = c?.relayer?.subscriber;
+  let topicPrefixes: string[] = [];
+  try {
+    // Short prefixes only — never the full topic.
+    topicPrefixes = (sub?.topics ?? []).map((t) => `${String(t).slice(0, 8)}…`);
+  } catch {
+    topicPrefixes = [];
+  }
+  let pairingCount: number | null = null;
+  try {
+    pairingCount = c?.pairing?.getPairings?.().length ?? null;
+  } catch {
+    pairingCount = null;
+  }
+  return {
+    relayConnected: c?.relayer?.connected ?? null,
+    subscriptionCount: sub?.length ?? topicPrefixes.length,
+    subscriptionTopicPrefixes: topicPrefixes,
+    pairingCount,
+  };
+}
+
+// Set when a wc_sessionPropose publish is observed (start of an attempt).
+let attemptStartedAt: number | null = null;
+let subscriptionsAtAttemptStart: string[] = [];
+
+function elapsedSinceAttempt() {
+  return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
+}
+
+/** SignClient success/expiry signals on the EXISTING provider.client. */
+export function signClientWatch(provider: unknown) {
   if (!AZOX_WC_DIAGNOSTICS) return;
   const client = (provider as AnyProvider)?.client;
   if (typeof client?.on !== "function") return;
-  for (const name of [
+
+  const log = (name: string, extra?: Record<string, unknown>) =>
+    diag(`signclient event: ${name}`, {
+      ...providerSnapshot(provider),
+      ...relayState(provider),
+      ...(extra ?? {}),
+    });
+
+  const events = [
     "session_proposal",
-    "session_settle",
-    "session_approve",
+    "session_connect", // definitive successful session-connect event
     "session_expire",
     "session_request_sent",
     "proposal_expire",
-  ]) {
+  ];
+  for (const name of events) {
     try {
       client.on(name, () => {
-        diag(`signclient event: ${name}`, providerSnapshot(provider));
+        if (name === "session_connect") {
+          diag("session_connect", {
+            ...providerSnapshot(provider),
+            ...relayState(provider),
+            elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+          });
+          return;
+        }
+        if (name === "proposal_expire") {
+          log(name, {
+            elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+            subscriptionsAtAttemptStart: subscriptionsAtAttemptStart.length,
+          });
+          return;
+        }
+        log(name);
       });
     } catch {
       /* event may not be supported by this SignClient version */
     }
   }
 }
+
+/** Relayer transport events (installed @walletconnect/core 2.23.7 names). */
+export function relayerWatch(provider: unknown) {
+  if (!AZOX_WC_DIAGNOSTICS) return;
+  const relayer = core(provider)?.relayer;
+  if (typeof relayer?.on !== "function") return;
+
+  for (const name of [
+    "relayer_connect",
+    "relayer_disconnect",
+    "relayer_connection_stalled",
+    "relayer_message",
+    "relayer_message_ack",
+    "relayer_error",
+    "relayer_transport_closed",
+  ]) {
+    try {
+      relayer.on(name, (payload?: unknown) => {
+        const extra: Record<string, unknown> = {};
+        if (name === "relayer_message") {
+          // ONLY an 8-char topic prefix — never the message payload.
+          const topic = (payload as { topic?: string } | undefined)?.topic;
+          extra["topicPrefix"] = topic ? `${String(topic).slice(0, 8)}…` : null;
+        }
+        diag(`relayer event: ${name}`, {
+          ...relayState(provider),
+          ...extra,
+        });
+      });
+    } catch {
+      /* event may not be supported */
+    }
+  }
+
+  // Attempt boundary: the engine publishes wc_sessionPropose (tag 1100) at the
+  // start of every connect() attempt. Observational only — no publish is made.
+  try {
+    relayer.on("relayer_publish", (payload?: unknown) => {
+      const tag = (payload as { opts?: { tag?: number } } | undefined)?.opts
+        ?.tag;
+      if (tag !== 1100) return;
+      attemptStartedAt = Date.now();
+      const snap = relayState(provider);
+      subscriptionsAtAttemptStart = snap.subscriptionTopicPrefixes;
+      diag("connection-attempt-start", {
+        ...providerSnapshot(provider),
+        ...snap,
+      });
+    });
+  } catch {
+    /* event may not be supported */
+  }
+}
+
+/**
+ * Subscriber events (installed @walletconnect/core 2.23.7 names).
+ * NOTE: `subscription_created` is only a CORRELATION signal that some topic
+ * subscription appeared. It does NOT by itself prove that the engine's
+ * onSessionProposeResponse() ran: in the installed sign-client that handler's
+ * only safely observable public consequence is a NEW subscriber subscription
+ * on the derived session topic (plus pairing activation). Compare the
+ * post-approval topic prefixes against `subscriptionsAtAttemptStart` to tell
+ * the pairing subscription apart from a session-topic subscription.
+ */
+export function subscriberWatch(provider: unknown) {
+  if (!AZOX_WC_DIAGNOSTICS) return;
+  const subscriber = core(provider)?.relayer?.subscriber;
+  if (typeof subscriber?.on !== "function") return;
+
+  for (const name of [
+    "subscription_created",
+    "subscription_deleted",
+    "subscription_resubscribed",
+    "subscription_expired",
+    "subscription_sync",
+  ]) {
+    try {
+      subscriber.on(name, (payload?: unknown) => {
+        const before = relayState(provider).subscriptionCount;
+        // Counts are read synchronously; the "after" read happens on the next
+        // microtask so the subscriber map has settled. No mutation occurs.
+        const topic = (payload as { topic?: string } | undefined)?.topic;
+        queueMicrotask(() => {
+          const after = relayState(provider);
+          diag(`subscriber event: ${name}`, {
+            subscriptionCountBefore: before,
+            subscriptionCountAfter: after.subscriptionCount,
+            topicPrefix: topic ? `${String(topic).slice(0, 8)}…` : null,
+            isNewSinceAttemptStart: topic
+              ? !subscriptionsAtAttemptStart.includes(
+                  `${String(topic).slice(0, 8)}…`,
+                )
+              : null,
+            subscriptionsAtAttemptStart: subscriptionsAtAttemptStart.length,
+            relayConnected: after.relayConnected,
+            elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+          });
+        });
+      });
+    } catch {
+      /* event may not be supported */
+    }
+  }
+}
+
