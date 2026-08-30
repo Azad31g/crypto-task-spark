@@ -17,6 +17,16 @@ import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import UniversalProvider from "@walletconnect/universal-provider";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
+// TEMPORARY observational diagnostics (no behavior change).
+import {
+  attachLifecycleDiagnostics,
+  attachProviderDiagnostics,
+  diag,
+  providerSnapshot,
+  storageKeySnapshot,
+  wagmiSnapshot,
+} from "./wc-diagnostics";
+import { WcDiagnosticsProbe } from "../components/azox/wc-diagnostics-probe";
 
 // --- Telegram Mini App support -------------------------------------------
 // Telegram's WebView does not implement window.open(): AppKit's deep link
@@ -99,6 +109,15 @@ const appKitReady: Promise<void> = (async () => {
   // session-recovery write below and the WagmiAdapter.
   const wagmiStorage = createStorage({ storage: cookieStorage });
 
+  // --- TEMPORARY diagnostics (observational only) -------------------------
+  diag("provider initialized", {
+    ...providerSnapshot(universalProvider),
+    storage: storageKeySnapshot(),
+  });
+  attachProviderDiagnostics(universalProvider);
+  attachLifecycleDiagnostics(() => providerSnapshot(universalProvider));
+  // ------------------------------------------------------------------------
+
   // Session recovery (installed-source proven):
   // When Telegram recreates the Mini App page after the wallet approval, the
   // original WalletConnectConnector.connect() promise is lost, so wagmi's
@@ -151,12 +170,58 @@ const appKitReady: Promise<void> = (async () => {
     metadata: wcMetadata,
     features: { analytics: false },
   });
+
+  // --- TEMPORARY diagnostics (observational only) -------------------------
+  // Never calls isAuthorized()/connect()/disconnect(): those have side effects.
+  const cfg = wagmiAdapter.wagmiConfig;
+  const wcConnector = cfg.connectors.find((c) => c.id === "walletConnect");
+  const storageSnap = storageKeySnapshot();
+  diag("staleness (before reconnect)", {
+    configuredChainIds: cfg.chains.map((c) => c.id),
+    requestedChains: storageSnap.requestedChains,
+    restoredSessionChainIds: providerSnapshot(universalProvider).chainIds,
+    connectorExists: Boolean(wcConnector),
+    connectorId: wcConnector?.id ?? null,
+    providerSessionExists: Boolean(universalProvider.session),
+  });
+  diag("reconnect:start", {
+    ...wagmiSnapshot(cfg),
+    provider: providerSnapshot(universalProvider),
+  });
+  cfg.subscribe(
+    (s) => ({ status: s.status, size: s.connections.size, cur: s.current }),
+    (next, prev) => {
+      diag("wagmi state", {
+        statusBefore: prev.status,
+        statusAfter: next.status,
+        connectionsBefore: prev.size,
+        connectionsAfter: next.size,
+        ...wagmiSnapshot(cfg),
+        provider: providerSnapshot(universalProvider),
+      });
+      if (prev.status !== next.status && next.status === "connected") {
+        diag("reconnect:success", wagmiSnapshot(cfg));
+      }
+      if (prev.status === "reconnecting" && next.status === "disconnected") {
+        diag("reconnect:error", {
+          name: "ReconnectFailed",
+          message: "wagmi went reconnecting -> disconnected",
+          provider: providerSnapshot(universalProvider),
+          storage: storageKeySnapshot(),
+        });
+      }
+    },
+    { equalityFn: (a, b) => a.status === b.status && a.size === b.size && a.cur === b.cur },
+  );
+  // ------------------------------------------------------------------------
 })();
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   use(appKitReady);
   return (
     <WagmiProvider config={wagmiAdapter!.wagmiConfig} reconnectOnMount>
+      {/* TEMPORARY: renders nothing, observes useAccount only. */}
+      <WcDiagnosticsProbe />
       {children}
     </WagmiProvider>
   );
