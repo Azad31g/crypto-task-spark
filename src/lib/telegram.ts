@@ -42,7 +42,6 @@ export function isTelegram(): boolean {
   const hasWebApp = Boolean(window.Telegram?.WebApp);
   const hasInitData = Boolean(window.Telegram?.WebApp?.initData);
   const hasUser = Boolean(window.Telegram?.WebApp?.initDataUnsafe?.user);
-  console.log("[telegram] isTelegram check:", { hasWebApp, hasInitData, hasUser });
   return hasWebApp && (hasInitData || hasUser);
 }
 
@@ -54,10 +53,7 @@ export function isTelegram(): boolean {
 export function isTelegramMiniApp(): boolean {
   if (typeof window === "undefined") return false;
   const bridgeWindow = window as TelegramBridgeWindow;
-  if (
-    bridgeWindow.TelegramWebviewProxy ||
-    bridgeWindow.TelegramWebviewProxyProto
-  ) {
+  if (bridgeWindow.TelegramWebviewProxy || bridgeWindow.TelegramWebviewProxyProto) {
     return true;
   }
 
@@ -73,16 +69,13 @@ export function isTelegramMiniApp(): boolean {
     return true;
   }
 
-  const webApp = window.Telegram?.WebApp as
-    | (TelegramWebApp & { platform?: string })
-    | undefined;
+  const webApp = window.Telegram?.WebApp as (TelegramWebApp & { platform?: string }) | undefined;
   if (!webApp) return false;
   if (webApp.initData) return true;
   if (webApp.initDataUnsafe?.user) return true;
   const platform = webApp.platform;
   return Boolean(platform && platform !== "unknown");
 }
-
 
 export function getTelegramUser(): TelegramUser | null {
   if (typeof window === "undefined") return null;
@@ -125,10 +118,6 @@ export function expandApp(): void {
 
 export function initTelegram(): TelegramUser | null {
   const app = getWebApp();
-  console.log("[telegram] window.Telegram:", typeof window !== "undefined" ? window.Telegram : "SSR");
-  console.log("[telegram] WebApp:", app);
-  console.log("[telegram] initDataUnsafe:", app?.initDataUnsafe);
-  console.log("[telegram] user:", app?.initDataUnsafe?.user);
   if (!app) return null;
   try {
     app.ready();

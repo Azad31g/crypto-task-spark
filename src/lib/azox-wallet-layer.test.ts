@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { primaryWalletTransport, resolveWalletEnvironment } from "./azox-wallet-layer";
+import {
+  metaMaskConnectAvailable,
+  primaryWalletTransport,
+  resolveWalletEnvironment,
+} from "./azox-wallet-layer";
 
 const ANDROID_UA =
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36";
@@ -76,5 +80,51 @@ describe("primaryWalletTransport", () => {
     expect(primaryWalletTransport("telegram-android")).toBe("metaMask");
     expect(primaryWalletTransport("telegram-other")).toBe("appKit");
     expect(primaryWalletTransport("web")).toBe("appKit");
+  });
+});
+
+describe("metaMaskConnectAvailable", () => {
+  it("registers MetaMask Connect only inside a Telegram Android Mini App", () => {
+    expect(metaMaskConnectAvailable("telegram-android")).toBe(true);
+    expect(metaMaskConnectAvailable("telegram-other")).toBe(false);
+    expect(metaMaskConnectAvailable("web")).toBe(false);
+  });
+
+  it("matches the primary transport decision for every environment", () => {
+    for (const env of ["web", "telegram-android", "telegram-other"] as const) {
+      expect(metaMaskConnectAvailable(env)).toBe(primaryWalletTransport(env) === "metaMask");
+    }
+  });
+});
+
+describe("launch-parameter and unknown-platform handling", () => {
+  it("treats android_x from the launch parameter as Telegram Android", () => {
+    expect(
+      resolveWalletEnvironment({
+        isMiniApp: true,
+        platform: "unknown",
+        launchPlatform: "android_x",
+      }),
+    ).toBe("telegram-android");
+  });
+
+  it("uses the Android user agent when the platform is unknown and no launch parameter exists", () => {
+    expect(
+      resolveWalletEnvironment({
+        isMiniApp: true,
+        platform: "unknown",
+        userAgent: ANDROID_UA,
+      }),
+    ).toBe("telegram-android");
+  });
+
+  it("stays web-safe when nothing but a launch parameter is present outside a Mini App", () => {
+    expect(
+      resolveWalletEnvironment({
+        isMiniApp: false,
+        launchPlatform: "android",
+        userAgent: ANDROID_UA,
+      }),
+    ).toBe("web");
   });
 });

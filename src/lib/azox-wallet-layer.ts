@@ -56,6 +56,14 @@ export function primaryWalletTransport(env: WalletEnvironment): "metaMask" | "ap
   return env === "telegram-android" ? "metaMask" : "appKit";
 }
 
+/**
+ * Whether the official MetaMask Connect connector is registered for this
+ * environment. It is registered ONLY inside a Telegram Android Mini App.
+ */
+export function metaMaskConnectAvailable(env: WalletEnvironment): boolean {
+  return env === "telegram-android";
+}
+
 function launchPlatformParam(): string | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(
