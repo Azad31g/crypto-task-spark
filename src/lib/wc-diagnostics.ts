@@ -459,6 +459,35 @@ let messagesOnCurrentPairingTopic = 0;
 let messagesOnProposeTopic = 0;
 let messagesOnSessionTopic = 0;
 
+// --- Raw relayer_publish observation state (observation only) --------------
+// Populated by the relayer_publish handler inside relayerWatch(). Declared
+// at module scope so proposal_expire/session_connect can report whether ANY
+// publish event was observed during the attempt.
+let relayerPublishObserved = false;
+let tag1100Observed = false;
+let relayerPublishCount = 0;
+let tag1100Count = 0;
+const observedMethods = new Set<string>();
+const observedParamsTags = new Set<number>();
+const observedTopLevelTags = new Set<number>();
+const observedPayloadKeys = new Set<string>();
+const observedParamsKeys = new Set<string>();
+
+/** Observation-only summary of every relayer_publish seen so far. */
+function publishObservationSummary() {
+  return {
+    relayerPublishObserved,
+    tag1100Observed,
+    relayerPublishCount,
+    tag1100Count,
+    observedPublishMethods: Array.from(observedMethods),
+    observedParamsTags: Array.from(observedParamsTags),
+    observedTopLevelTags: Array.from(observedTopLevelTags),
+    observedPayloadKeys: Array.from(observedPayloadKeys),
+    observedParamsKeys: Array.from(observedParamsKeys),
+  };
+}
+
 function elapsedSinceAttempt() {
   return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
 }
@@ -542,6 +571,7 @@ export function signClientWatch(provider: unknown) {
             ...frozenAttemptFields(),
             currentSessionTopicPrefix: frozenSessionTopicPrefix,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+            ...publishObservationSummary(),
           });
           return;
         }
@@ -563,6 +593,7 @@ export function signClientWatch(provider: unknown) {
             messagesOnCurrentPairingTopic,
             messagesOnProposeTopic,
             messagesOnSessionTopic,
+            ...publishObservationSummary(),
             // Final verdict honesty guard: "the wallet sent nothing" may ONLY
             // be claimed when (1) attempt identity was captured from a real
             // tag=1100 event, (2) the pairing topic is frozen, (3) every
@@ -674,6 +705,10 @@ export function relayerWatch(provider: unknown) {
 
   // Attempt boundary: the engine publishes wc_sessionPropose (tag 1100) at the
   // start of every connect() attempt. Observational only — no publish is made.
+  //
+  // RAW PAYLOAD INSPECTION (observation only): observe EVERY relayer_publish
+  // before any tag filtering, so we can determine whether the event reaches
+  // this watcher at all, and where the tag actually lives at runtime.
   try {
     relayer.on("relayer_publish", (payload?: unknown) => {
       // Verified against INSTALLED @walletconnect/core 2.23.7 Publisher:
@@ -685,10 +720,48 @@ export function relayerWatch(provider: unknown) {
       //   payload.tag         (opts spread — set when caller passed opts.tag)
       // There is NO payload.opts.tag in the installed version.
       const p = payload as
-        | { params?: { tag?: number; topic?: string }; tag?: number }
+        | {
+            method?: string;
+            params?: { tag?: number; topic?: string };
+            tag?: number;
+          }
         | undefined;
-      const detectedTag = p?.params?.tag ?? p?.tag ?? null;
-      if (detectedTag !== 1100) return;
+
+      // --- RAW observation of EVERY publish (no tag pre-filter) ------------
+      relayerPublishObserved = true;
+      relayerPublishCount += 1;
+      const method = typeof p?.method === "string" ? p.method : null;
+      const paramsTag =
+        typeof p?.params?.tag === "number" ? p.params.tag : null;
+      const topLevelTag = typeof p?.tag === "number" ? p.tag : null;
+      const paramsTopicPrefix = pfx(p?.params?.topic);
+      const payloadKeys = p && typeof p === "object" ? Object.keys(p) : [];
+      const paramsKeys =
+        p?.params && typeof p.params === "object" ? Object.keys(p.params) : [];
+      if (method) observedMethods.add(method);
+      if (paramsTag !== null) observedParamsTags.add(paramsTag);
+      if (topLevelTag !== null) observedTopLevelTags.add(topLevelTag);
+      for (const k of payloadKeys) observedPayloadKeys.add(k);
+      for (const k of paramsKeys) observedParamsKeys.add(k);
+      // Never log message payloads, full topics, or URIs — keys/prefixes only.
+      diag("relayer_publish raw", {
+        eventReceived: true,
+        method,
+        paramsTag,
+        topLevelTag,
+        paramsTopicPrefix,
+        payloadKeys: payloadKeys.join(","),
+        paramsKeys: paramsKeys.join(","),
+        relayConnected: core(provider)?.relayer?.connected ?? null,
+        elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+      });
+      // ----------------------------------------------------------------------
+
+      // Tag 1100 detection at EITHER verified location — no silent choice.
+      if (paramsTag !== 1100 && topLevelTag !== 1100) return;
+      tag1100Observed = true;
+      tag1100Count += 1;
+      const detectedTag = paramsTag === 1100 ? paramsTag : topLevelTag;
       attemptStartedAt = Date.now();
       const snap = relayState(provider);
       // Freeze THIS attempt's identity immediately — never re-derived later.
