@@ -1,23 +1,34 @@
-// BROWSER-ONLY module. Imports @metamask/connect-evm, which touches browser
-// globals — it must never enter the SSR / Cloudflare worker import graph.
-// It is only imported from `appkit-runtime.tsx`, which itself is loaded lazily
-// behind <ClientOnly>.
-//
-// Implementation follows the official MetaMask reference connector
+// BROWSER-ONLY module. It follows the official MetaMask reference connector
 // (MetaMask/connect-monorepo → integrations/wagmi/metamask-connector.ts):
-// lazy singleton `createEVMClient`, EIP-1193 provider, `connect({ chainIds })`,
-// `switchChain`, and account/chain/disconnect/display_uri event handlers.
+// lazy singleton client created through a DYNAMIC import of
+// `@metamask/connect-evm`, an EIP-1193 provider, `connect({ chainIds })`,
+// `switchChain`, and accountsChanged / chainChanged / connect / disconnect /
+// displayUri handlers.
+//
+// All `@metamask/connect-evm` imports at module scope are TYPE-ONLY, so this
+// module carries no runtime dependency on the package until a user explicitly
+// starts a MetaMask connection. That also keeps the SSR/worker graph clean.
+//
+// AZOX constraints: registered only in a Telegram Android Mini App, single
+// configured chain Robinhood Testnet 46630 (0xb626), no deprecated
+// @metamask/sdk packages.
 import { createConnector } from "wagmi";
 import {
   SwitchChainError,
   UserRejectedRequestError,
   getAddress,
   numberToHex,
+  withRetry,
+  withTimeout,
   type Address,
   type Hex,
   type ProviderConnectInfo,
 } from "viem";
-import { createEVMClient, type MetamaskConnectEVM } from "@metamask/connect-evm";
+import type {
+  EIP1193Provider,
+  MetamaskConnectEVM,
+  createEVMClient as CreateEVMClient,
+} from "@metamask/connect-evm";
 import { robinhoodTestnet, APP_URL } from "./wagmi-config";
 import { METAMASK_CONNECTOR_ID } from "./azox-wallet-layer";
 
@@ -28,121 +39,176 @@ const SUPPORTED_NETWORKS: Record<Hex, string> = {
   [ROBINHOOD_HEX]: robinhoodTestnet.rpcUrls.default.http[0]!,
 };
 
-type Provider = ReturnType<MetamaskConnectEVM["getProvider"]>;
+/** MetaMask's official EIP-6963 rdns identifiers. */
+const METAMASK_RDNS = ["io.metamask", "io.metamask.mobile", "io.metamask.flask"] as const;
 
-// wagmi's connector shape carries a `withCapabilities` generic on connect();
-// we implement the plain (non-capabilities) variant, so the finished object is
-// cast once to the exact shape createConnector expects.
-type ConnectorShape = ReturnType<Parameters<typeof createConnector<Provider>>[0]>;
+function isUserRejection(error: unknown): boolean {
+  const code = (error as { code?: number } | undefined)?.code;
+  if (code === 4001) return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /user rejected|user denied|rejected the request/i.test(message);
+}
 
 export function metaMaskConnect() {
-  let client: MetamaskConnectEVM | undefined;
-  let clientPromise: Promise<MetamaskConnectEVM> | undefined;
+  return createConnector<EIP1193Provider>((config) => {
+    let instance: MetamaskConnectEVM | undefined;
+    let instancePromise: Promise<MetamaskConnectEVM> | undefined;
 
-  return createConnector<Provider>((config) => {
-    const onAccountsChanged = (accounts: readonly string[]) => {
+    // --- official event bindings -------------------------------------------
+    const onAccountsChanged = (accounts: string[] | readonly string[]) => {
       if (accounts.length === 0) config.emitter.emit("disconnect");
       else
         config.emitter.emit("change", {
-          accounts: accounts.map((a) => getAddress(a)) as readonly Address[],
+          accounts: accounts.map((account) => getAddress(account)),
         });
     };
+
     const onChainChanged = (chainId: string) => {
       config.emitter.emit("change", { chainId: Number(chainId) });
     };
-    const onDisconnect = () => {
-      config.emitter.emit("disconnect");
-    };
-    const onConnect = (info: { chainId: string; accounts: Address[] }) => {
+
+    const onConnect = async () => {
+      const accounts = await connector.getAccounts();
+      if (accounts.length === 0) return;
       config.emitter.emit("connect", {
-        accounts: info.accounts.map((a) => getAddress(a)),
-        chainId: Number(info.chainId),
-      } as unknown as { accounts: readonly Address[]; chainId: number });
+        accounts,
+        chainId: await connector.getChainId(),
+      });
     };
 
-    async function getClient() {
-      if (client) return client;
-      if (!clientPromise) {
-        clientPromise = createEVMClient({
-          dapp: { name: "AZOX Gateway", url: APP_URL },
-          api: { supportedNetworks: SUPPORTED_NETWORKS },
-          analytics: { enabled: false },
-          // Do not add a duplicate EIP-6963 MetaMask provider on top of the
-          // existing AppKit / injected discovery.
-          skipAutoAnnounce: true,
-          eventHandlers: {
-            connect: onConnect,
-            disconnect: onDisconnect,
-            accountsChanged: onAccountsChanged,
-            chainChanged: onChainChanged,
-          },
-        });
+    const onDisconnect = async (error?: Error) => {
+      // Official behavior: MetaMask emits 1013 ("try again later") while it is
+      // merely reconnecting. Only treat it as a real disconnect when the
+      // account is actually gone.
+      if ((error as { code?: number } | undefined)?.code === 1013) {
+        const accounts = await connector.getAccounts().catch(() => []);
+        if (accounts.length > 0) return;
       }
-      client = await clientPromise;
-      return client;
+      config.emitter.emit("disconnect");
+    };
+
+    const onDisplayUri = (uri: string) => {
+      config.emitter.emit("message", { type: "display_uri", data: uri });
+    };
+
+    async function getInstance(): Promise<MetamaskConnectEVM> {
+      if (instance) return instance;
+      if (!instancePromise) {
+        instancePromise = (async () => {
+          // Runtime import happens here only — never at module scope.
+          const { createEVMClient } = (await import("@metamask/connect-evm")) as {
+            createEVMClient: typeof CreateEVMClient;
+          };
+          return createEVMClient({
+            dapp: { name: "AZOX Gateway", url: APP_URL },
+            api: { supportedNetworks: SUPPORTED_NETWORKS },
+            // Installed 2.1.1 supports both fields; AZOX opts out of analytics.
+            analytics: { enabled: false, integrationType: "wagmi" },
+            // Do not announce a duplicate EIP-6963 MetaMask provider on top of
+            // the existing AppKit / injected discovery.
+            skipAutoAnnounce: true,
+            eventHandlers: {
+              accountsChanged: onAccountsChanged,
+              chainChanged: onChainChanged,
+              connect: () => {
+                void onConnect();
+              },
+              disconnect: () => {
+                void onDisconnect();
+              },
+              displayUri: onDisplayUri,
+            },
+          });
+        })();
+      }
+      instance = await instancePromise;
+      return instance;
     }
 
     const connector = {
       id: METAMASK_CONNECTOR_ID,
       name: "MetaMask",
-      type: "metaMaskSDK" as const,
-
-      async setup() {
-        // No eager connection: the client is only built on explicit user action.
-      },
+      type: "metaMask" as const,
+      rdns: METAMASK_RDNS,
 
       async getProvider() {
-        const c = await getClient();
-        return c.getProvider();
+        const client = await getInstance();
+        return client.getProvider();
       },
 
-      async connect({ chainId }: { chainId?: number } = {}) {
+      async connect<withCapabilities extends boolean = false>(parameters?: {
+        chainId?: number | undefined;
+        isReconnecting?: boolean | undefined;
+        withCapabilities?: withCapabilities | boolean | undefined;
+      }) {
+        const client = await getInstance();
         try {
-          const c = await getClient();
-          const requested = chainId ? (numberToHex(chainId) as Hex) : ROBINHOOD_HEX;
-          const result = await c.connect({ chainIds: [requested] });
-          const accounts = result.accounts.map((a) => getAddress(a));
-          let currentChainId = Number(result.chainId);
-          if (chainId && currentChainId !== chainId) {
-            const chain = await this.switchChain?.({ chainId }).catch(() => undefined);
-            currentChainId = chain?.id ?? currentChainId;
+          const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
+          const result = await client.connect({ chainIds: requestedChainIds });
+          const accounts = result.accounts.map((account) => getAddress(account));
+
+          let currentChainId = await this.getChainId();
+          const desiredChainId = parameters?.chainId;
+          if (desiredChainId && currentChainId !== desiredChainId) {
+            const chain = await this.switchChain({ chainId: desiredChainId });
+            currentChainId = chain.id;
           }
+
+          // Minimal cast: this connector implements the plain (non-capability)
+          // variant of wagmi's generic `connect` signature.
           return { accounts, chainId: currentChainId } as unknown as {
-            accounts: readonly Address[];
+            accounts: withCapabilities extends true
+              ? readonly { address: Address; capabilities: Record<string, unknown> }[]
+              : readonly Address[];
             chainId: number;
           };
         } catch (error) {
-          if (
-            /user rejected|user denied|rejected the request/i.test(
-              error instanceof Error ? error.message : String(error),
-            )
-          ) {
-            throw new UserRejectedRequestError(error as Error);
-          }
+          if (isUserRejection(error)) throw new UserRejectedRequestError(error as Error);
           throw error;
         }
       },
 
       async disconnect() {
-        const c = await getClient();
-        await c.disconnect();
+        const client = await getInstance();
+        await client.disconnect();
       },
 
-      async getAccounts() {
-        const c = await getClient();
-        return c.accounts.map((a) => getAddress(a)) as readonly Address[];
+      async getAccounts(): Promise<readonly Address[]> {
+        const client = await getInstance();
+        const known = client.accounts;
+        if (known.length > 0) return known.map((account) => getAddress(account));
+        const provider = client.getProvider();
+        const accounts = (await provider.request({
+          method: "eth_accounts",
+          params: [],
+        })) as string[] | undefined;
+        return (accounts ?? []).map((account) => getAddress(account));
       },
 
-      async getChainId() {
-        const c = await getClient();
-        const hex = c.getChainId();
-        return hex ? Number(hex) : robinhoodTestnet.id;
+      async getChainId(): Promise<number> {
+        const client = await getInstance();
+        const known = client.getChainId();
+        if (known) return Number(known);
+        const provider = client.getProvider();
+        const chainId = (await provider.request({
+          method: "eth_chainId",
+        })) as Hex | undefined;
+        return chainId ? Number(chainId) : robinhoodTestnet.id;
       },
 
       async isAuthorized() {
         try {
-          const c = await getClient();
-          return c.accounts.length > 0;
+          // Official pattern: the client may still be restoring its session, so
+          // retry briefly instead of reading `accounts` a single time.
+          const accounts = await withRetry(
+            () =>
+              withTimeout(() => this.getAccounts(), {
+                timeout: 2_000,
+                errorInstance: new Error("MetaMask account lookup timed out"),
+              }),
+            { delay: 200, retryCount: 3 },
+          );
+          return accounts.length > 0;
         } catch {
           return false;
         }
@@ -151,9 +217,9 @@ export function metaMaskConnect() {
       async switchChain({ chainId }: { chainId: number }) {
         const chain = config.chains.find((c) => c.id === chainId);
         if (!chain) throw new SwitchChainError(new Error("Chain not found"));
+        const client = await getInstance();
         try {
-          const c = await getClient();
-          await c.switchChain({
+          await client.switchChain({
             chainId: numberToHex(chainId) as Hex,
             chainConfiguration: {
               chainId: numberToHex(chainId),
@@ -168,16 +234,21 @@ export function metaMaskConnect() {
           config.emitter.emit("change", { chainId });
           return chain;
         } catch (error) {
+          if (isUserRejection(error)) throw new UserRejectedRequestError(error as Error);
           throw new SwitchChainError(error as Error);
         }
       },
 
       onAccountsChanged,
       onChainChanged,
-      onDisconnect,
-      onConnect: onConnect as unknown as (connectInfo: ProviderConnectInfo) => void,
+      onConnect: (_connectInfo: ProviderConnectInfo) => {
+        void onConnect();
+      },
+      onDisconnect: (error?: Error) => {
+        void onDisconnect(error);
+      },
     };
 
-    return connector as unknown as ConnectorShape;
+    return connector;
   });
 }
