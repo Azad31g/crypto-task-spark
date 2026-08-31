@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { primaryWalletTransport, resolveWalletEnvironment } from "./azox-wallet-layer";
+import {
+  metaMaskConnectAvailable,
+  primaryWalletTransport,
+  resolveWalletEnvironment,
+} from "./azox-wallet-layer";
 
 const ANDROID_UA =
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36";

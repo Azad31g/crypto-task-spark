@@ -5,12 +5,21 @@ import {
   METAMASK_CONNECTOR_ID,
   WALLET_MODE_LABELS,
   detectWalletEnvironment,
+  metaMaskConnectAvailable,
   openAzoxInExternalBrowser,
   type WalletEnvironment,
 } from "@/lib/azox-wallet-layer";
 import { robinhoodTestnet } from "@/lib/wagmi-config";
 
 const ORANGE = "#FF7A18";
+
+/** EIP-1193 user rejection, as emitted by MetaMask Connect and wagmi. */
+function isUserRejection(error: unknown): boolean {
+  const code = (error as { code?: number } | undefined)?.code;
+  if (code === 4001) return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /user rejected|user denied|rejected the request/i.test(message);
+}
 
 const WalletButton = lazy(() =>
   import("@/lib/appkit-runtime").then((m) => ({ default: m.WalletButton })),
@@ -53,7 +62,9 @@ export function WalletConnectPanel({ footer }: { footer?: ReactNode }) {
   const isTelegramAndroid = env === "telegram-android";
 
   const handleMetaMask = async () => {
-    const connector = connectors.find((c) => c.id === METAMASK_CONNECTOR_ID);
+    const connector = metaMaskConnectAvailable(env)
+      ? connectors.find((c) => c.id === METAMASK_CONNECTOR_ID)
+      : undefined;
     if (!connector) {
       setError("MetaMask Connect is not available in this environment.");
       return;
@@ -63,6 +74,9 @@ export function WalletConnectPanel({ footer }: { footer?: ReactNode }) {
     try {
       await connectAsync({ connector, chainId: robinhoodTestnet.id });
     } catch (err) {
+      // A user rejection (4001) is a deliberate choice, not a failure: no
+      // error banner and no fallback prompt.
+      if (isUserRejection(err)) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setConnecting(false);
