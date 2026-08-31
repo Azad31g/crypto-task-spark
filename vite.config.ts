@@ -10,6 +10,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 const require = createRequire(import.meta.url);
 const eventsPolyfill = require.resolve("events/");
+const bufferPolyfill = require.resolve("buffer/");
 
 
 export default defineConfig({
@@ -68,6 +69,18 @@ export default new Proxy({}, { get: () => notAvailable });`;
           if (id !== "events" && id !== "node:events") return null;
           if (this.environment?.name !== "client") return null;
           return eventsPolyfill;
+        },
+      },
+      {
+        // Same class of problem for "node:buffer": MetaMask Connect's mobile
+        // wallet protocol uses Buffer for its session encryption, and the
+        // browser bundle would otherwise externalize it to an empty stub.
+        name: "azox-buffer-browser-polyfill",
+        enforce: "pre" as const,
+        resolveId(this: { environment?: { name?: string } }, id: string) {
+          if (id !== "buffer" && id !== "node:buffer") return null;
+          if (this.environment?.name !== "client") return null;
+          return bufferPolyfill;
         },
       },
     ],
