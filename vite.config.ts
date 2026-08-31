@@ -10,7 +10,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 const require = createRequire(import.meta.url);
 const eventsPolyfill = require.resolve("events/");
-
+const bufferPolyfill = require.resolve("buffer/");
 
 export default defineConfig({
   tanstackStart: {
@@ -65,12 +65,15 @@ export default new Proxy({}, { get: () => notAvailable });`;
         name: "azox-events-browser-polyfill",
         enforce: "pre" as const,
         resolveId(this: { environment?: { name?: string } }, id: string) {
-          if (id !== "events" && id !== "node:events") return null;
           if (this.environment?.name !== "client") return null;
-          return eventsPolyfill;
+          if (id === "events" || id === "node:events") return eventsPolyfill;
+          // MetaMask Connect's MWP transport requires Buffer.from() in Android
+          // WebViews. Keep Node builtins on the server, but bundle the browser
+          // implementation for both bare and node:-prefixed client imports.
+          if (id === "buffer" || id === "node:buffer") return bufferPolyfill;
+          return null;
         },
       },
-
     ],
     resolve: {
       // NOTE: must stay an object map. The shared Lovable config already sets
