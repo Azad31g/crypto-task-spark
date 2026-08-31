@@ -593,6 +593,7 @@ export function signClientWatch(provider: unknown) {
             messagesOnCurrentPairingTopic,
             messagesOnProposeTopic,
             messagesOnSessionTopic,
+            ...publishObservationSummary(),
             // Final verdict honesty guard: "the wallet sent nothing" may ONLY
             // be claimed when (1) attempt identity was captured from a real
             // tag=1100 event, (2) the pairing topic is frozen, (3) every
