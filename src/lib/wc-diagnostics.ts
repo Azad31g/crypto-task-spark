@@ -674,6 +674,10 @@ export function relayerWatch(provider: unknown) {
 
   // Attempt boundary: the engine publishes wc_sessionPropose (tag 1100) at the
   // start of every connect() attempt. Observational only — no publish is made.
+  //
+  // RAW PAYLOAD INSPECTION (observation only): observe EVERY relayer_publish
+  // before any tag filtering, so we can determine whether the event reaches
+  // this watcher at all, and where the tag actually lives at runtime.
   try {
     relayer.on("relayer_publish", (payload?: unknown) => {
       // Verified against INSTALLED @walletconnect/core 2.23.7 Publisher:
