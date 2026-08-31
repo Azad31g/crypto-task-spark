@@ -155,8 +155,7 @@ export function metaMaskConnect() {
           // restore the existing MetaMask Connect session/accounts; only open
           // a fresh connection request when nothing was restored.
           let accounts: readonly Address[] = [];
-          if (parameters?.isReconnecting)
-            accounts = await this.getAccounts().catch(() => []);
+          if (parameters?.isReconnecting) accounts = await this.getAccounts().catch(() => []);
           if (accounts.length === 0) {
             const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
             const result = await client.connect({ chainIds: requestedChainIds });
