@@ -53,10 +53,7 @@ export function isTelegram(): boolean {
 export function isTelegramMiniApp(): boolean {
   if (typeof window === "undefined") return false;
   const bridgeWindow = window as TelegramBridgeWindow;
-  if (
-    bridgeWindow.TelegramWebviewProxy ||
-    bridgeWindow.TelegramWebviewProxyProto
-  ) {
+  if (bridgeWindow.TelegramWebviewProxy || bridgeWindow.TelegramWebviewProxyProto) {
     return true;
   }
 
@@ -72,16 +69,13 @@ export function isTelegramMiniApp(): boolean {
     return true;
   }
 
-  const webApp = window.Telegram?.WebApp as
-    | (TelegramWebApp & { platform?: string })
-    | undefined;
+  const webApp = window.Telegram?.WebApp as (TelegramWebApp & { platform?: string }) | undefined;
   if (!webApp) return false;
   if (webApp.initData) return true;
   if (webApp.initDataUnsafe?.user) return true;
   const platform = webApp.platform;
   return Boolean(platform && platform !== "unknown");
 }
-
 
 export function getTelegramUser(): TelegramUser | null {
   if (typeof window === "undefined") return null;
