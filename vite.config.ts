@@ -10,7 +10,6 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 const require = createRequire(import.meta.url);
 const eventsPolyfill = require.resolve("events/");
-const bufferPolyfill = require.resolve("buffer/");
 
 
 export default defineConfig({
