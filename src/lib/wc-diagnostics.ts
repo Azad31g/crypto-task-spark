@@ -561,18 +561,23 @@ export function signClientWatch(provider: unknown) {
             acksWithTopic,
             acksWithNoTopic,
             messagesOnCurrentPairingTopic,
+            messagesOnProposeTopic,
             messagesOnSessionTopic,
-            // Explicit honesty guard: "the wallet sent nothing" may only be
-            // claimed when the current pairing topic is known AND no incoming
-            // message lacked a topic.
+            // Final verdict honesty guard: "the wallet sent nothing" may ONLY
+            // be claimed when (1) attempt identity was captured from a real
+            // tag=1100 event, (2) the pairing topic is frozen, (3) every
+            // inbound relayer message exposed its topic, (4) observation ran
+            // until proposal_expire, and (5)+(6) no message matched the frozen
+            // pairing/session topics. Anything else -> "unable to determine".
             verdict:
-              !attemptIdentity(provider).currentPairingTopicKnown ||
+              !attemptStartedAt ||
+              frozenPairingTopicPrefix === null ||
               messagesWithNoTopic > 0
                 ? "unable to determine"
                 : messagesOnCurrentPairingTopic === 0 &&
                     messagesOnSessionTopic === 0
-                  ? "no incoming message on the current attempt topics"
-                  : "incoming message observed on the current attempt topics",
+                  ? "no incoming message on the frozen attempt topics"
+                  : "incoming message observed on the frozen attempt topics",
           });
           return;
         }
@@ -603,21 +608,27 @@ export function relayerWatch(provider: unknown) {
       relayer.on(name, (payload?: unknown) => {
         const extra: Record<string, unknown> = {};
         if (name === "relayer_message" || name === "relayer_message_ack") {
+          // Verified against installed @walletconnect/core 2.23.7:
+          // `relayer_message` emits { topic, message, publishedAt, ... }
+          // (topic ALWAYS present); `relayer_message_ack` emits the raw
+          // JSON-RPC ack `{ id, result }` — it has NO topic, ever. Acks are
+          // therefore never topic-correlated.
           const rawTopic = (payload as { topic?: string } | undefined)?.topic;
           const topicPresent = typeof rawTopic === "string" && rawTopic !== "";
           // ONLY an 8-char topic prefix — never the message payload.
           const topicPrefix = topicPresent ? pfx(rawTopic) : null;
-          const ident = attemptIdentity(provider);
           if (name === "relayer_message") {
+            totalInboundMessages += 1;
+            observeFrozenSessionTopic(provider);
             if (topicPresent) {
               messagesWithTopic += 1;
-              if (
-                topicPrefix &&
-                topicPrefix === currentPairingPrefix(provider)
-              ) {
+              if (topicPrefix && topicPrefix === frozenPairingTopicPrefix) {
                 messagesOnCurrentPairingTopic += 1;
               }
-              if (topicPrefix && topicPrefix === ident.sessionTopicPrefix) {
+              if (topicPrefix && topicPrefix === attemptProposeTopicPrefix) {
+                messagesOnProposeTopic += 1;
+              }
+              if (topicPrefix && topicPrefix === frozenSessionTopicPrefix) {
                 messagesOnSessionTopic += 1;
               }
             } else {
@@ -631,20 +642,25 @@ export function relayerWatch(provider: unknown) {
           }
           extra["topicPresent"] = topicPresent;
           extra["topicPrefix"] = topicPrefix;
-          extra["matchesCurrentPairingTopic"] = topicPresent
-            ? topicPrefix === currentPairingPrefix(provider)
+          extra["matchesAttemptPairingTopic"] = topicPresent
+            ? topicPrefix === frozenPairingTopicPrefix
             : null;
-          extra["matchesSessionTopic"] = topicPresent
-            ? topicPrefix === ident.sessionTopicPrefix
+          extra["matchesProposeTopic"] = topicPresent
+            ? topicPrefix === attemptProposeTopicPrefix
+            : null;
+          extra["matchesCurrentSessionTopic"] = topicPresent
+            ? topicPrefix === frozenSessionTopicPrefix
             : null;
           extra["elapsedMsSinceConnectionAttempt"] = elapsedSinceAttempt();
+          extra["totalInboundMessages"] = totalInboundMessages;
           extra["messagesWithTopic"] = messagesWithTopic;
           extra["messagesWithNoTopic"] = messagesWithNoTopic;
           extra["acksWithTopic"] = acksWithTopic;
           extra["acksWithNoTopic"] = acksWithNoTopic;
           extra["messagesOnCurrentPairingTopic"] = messagesOnCurrentPairingTopic;
+          extra["messagesOnProposeTopic"] = messagesOnProposeTopic;
           extra["messagesOnSessionTopic"] = messagesOnSessionTopic;
-          Object.assign(extra, ident);
+          Object.assign(extra, frozenAttemptFields());
         }
         diag(`relayer event: ${name}`, {
           ...relayState(provider),
