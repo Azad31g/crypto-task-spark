@@ -12,24 +12,13 @@
 // or re-encodes a WalletConnect URI, and it knows nothing about any wallet.
 import { use, type ReactNode } from "react";
 import { WagmiProvider } from "wagmi";
-import { cookieStorage, createStorage } from "@wagmi/core";
+import { cookieStorage, createStorage, type CreateConnectorFn } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
 import UniversalProvider from "@walletconnect/universal-provider";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
-// TEMPORARY observational diagnostics (no behavior change).
-import {
-  attachLifecycleDiagnostics,
-  attachProviderDiagnostics,
-  diag,
-  providerSnapshot,
-  relayerWatch,
-  signClientWatch,
-  subscriberWatch,
-  storageKeySnapshot,
-  wagmiSnapshot,
-} from "./wc-diagnostics";
-import { WcDiagnosticsProbe } from "../components/azox/wc-diagnostics-probe";
+import { isTelegramAndroidMiniApp } from "./azox-wallet-layer";
+import { metaMaskConnect } from "./metamask-connect-connector";
 
 // --- Telegram Mini App support -------------------------------------------
 // Telegram's WebView does not implement window.open(): AppKit's deep link
@@ -76,11 +65,7 @@ patchTelegramWindowOpen();
 // where to return the user after session approval; without it the approved
 // session never reaches back into the Telegram Mini App. We therefore create
 // the ONE UniversalProvider ourselves — with the full metadata — and hand it
-// to createAppKit via its supported `universalProvider` option
-// (appkit-base-client: `options.universalProvider ?? UniversalProvider.init(...)`).
-// UniversalProvider.createClient() forwards `metadata` verbatim into
-// SignClient.init(), so `redirect` survives into SignClient.metadata and into
-// every session proposal's proposer.metadata.
+// to createAppKit via its supported `universalProvider` option.
 const wcMetadata = {
   name: "AZOX Gateway",
   description: "AZOX Gaming Hub",
@@ -112,18 +97,6 @@ const appKitReady: Promise<void> = (async () => {
   // session-recovery write below and the WagmiAdapter.
   const wagmiStorage = createStorage({ storage: cookieStorage });
 
-  // --- TEMPORARY diagnostics (observational only) -------------------------
-  diag("provider initialized", {
-    ...providerSnapshot(universalProvider),
-    storage: storageKeySnapshot(),
-  });
-  attachProviderDiagnostics(universalProvider);
-  signClientWatch(universalProvider);
-  relayerWatch(universalProvider);
-  subscriberWatch(universalProvider);
-  attachLifecycleDiagnostics(() => providerSnapshot(universalProvider));
-  // ------------------------------------------------------------------------
-
   // Session recovery (installed-source proven):
   // When Telegram recreates the Mini App page after the wallet approval, the
   // original WalletConnectConnector.connect() promise is lost, so wagmi's
@@ -132,13 +105,6 @@ const appKitReady: Promise<void> = (async () => {
   // WalletConnectConnector.isAuthorized() -> isChainsStale() reads an empty
   // requestedChains list, concludes the chains are stale and calls
   // provider.disconnect(), destroying the valid session.
-  // Recovery: if a settled eip155 session already exists, derive the approved
-  // chain IDs from session.namespaces.eip155.accounts (CAIP-10 strings like
-  // "eip155:46630:0x...") and persist them via the SAME wagmi storage under
-  // the SAME key the connector reads (`walletConnect.requestedChains`), so
-  // isChainsStale() === false and the normal reconnectOnMount path reuses
-  // the real session. Nothing else is written — no account/address/chainId/
-  // connection state; those are still created by the normal wagmi reconnect.
   const restoredSession = universalProvider.session;
   const restoredAccounts =
     restoredSession?.namespaces?.["eip155"]?.accounts ?? [];
@@ -156,11 +122,20 @@ const appKitReady: Promise<void> = (async () => {
     );
   }
 
+  // Hybrid wallet layer: the official MetaMask Connect wagmi connector is only
+  // registered inside a real Telegram Mini App on Android, where MetaMask's own
+  // link flow is required. Everywhere else the AppKit/WalletConnect behavior is
+  // untouched. Either way there is still exactly ONE WagmiAdapter.
+  const extraConnectors: CreateConnectorFn[] = isTelegramAndroidMiniApp()
+    ? [metaMaskConnect() as unknown as CreateConnectorFn]
+    : [];
+
   wagmiAdapter = new WagmiAdapter({
     networks,
     projectId,
     ssr: true,
     storage: wagmiStorage,
+    ...(extraConnectors.length ? { connectors: extraConnectors } : {}),
   });
 
   createAppKit({
@@ -176,59 +151,12 @@ const appKitReady: Promise<void> = (async () => {
     metadata: wcMetadata,
     features: { analytics: false },
   });
-
-  // --- TEMPORARY diagnostics (observational only) -------------------------
-  // Never calls isAuthorized()/connect()/disconnect(): those have side effects.
-  const cfg = wagmiAdapter.wagmiConfig;
-  const wcConnector = cfg.connectors.find((c) => c.id === "walletConnect");
-  const storageSnap = storageKeySnapshot();
-  diag("staleness (before reconnect)", {
-    configuredChainIds: cfg.chains.map((c) => c.id),
-    requestedChains: storageSnap.requestedChains,
-    restoredSessionChainIds:
-      providerSnapshot(universalProvider).eip155ChainIds,
-    connectorExists: Boolean(wcConnector),
-    connectorId: wcConnector?.id ?? null,
-    providerSessionExists: Boolean(universalProvider.session),
-  });
-  diag("reconnect:start", {
-    ...wagmiSnapshot(cfg),
-    provider: providerSnapshot(universalProvider),
-  });
-  cfg.subscribe(
-    (s) => ({ status: s.status, size: s.connections.size, cur: s.current }),
-    (next, prev) => {
-      diag("wagmi state", {
-        statusBefore: prev.status,
-        statusAfter: next.status,
-        connectionsBefore: prev.size,
-        connectionsAfter: next.size,
-        ...wagmiSnapshot(cfg),
-        provider: providerSnapshot(universalProvider),
-      });
-      if (prev.status !== next.status && next.status === "connected") {
-        diag("reconnect:success", wagmiSnapshot(cfg));
-      }
-      if (prev.status === "reconnecting" && next.status === "disconnected") {
-        diag("reconnect:error", {
-          name: "ReconnectFailed",
-          message: "wagmi went reconnecting -> disconnected",
-          provider: providerSnapshot(universalProvider),
-          storage: storageKeySnapshot(),
-        });
-      }
-    },
-    { equalityFn: (a, b) => a.status === b.status && a.size === b.size && a.cur === b.cur },
-  );
-  // ------------------------------------------------------------------------
 })();
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   use(appKitReady);
   return (
     <WagmiProvider config={wagmiAdapter!.wagmiConfig} reconnectOnMount>
-      {/* TEMPORARY: renders nothing, observes useAccount only. */}
-      <WcDiagnosticsProbe />
       {children}
     </WagmiProvider>
   );

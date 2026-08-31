@@ -26,6 +26,7 @@ import {
   REGISTRATION_FEE,
 } from "@/lib/contracts";
 import { robinhoodTestnet } from "@/lib/wagmi-config";
+import { WalletConnectPanel } from "@/components/azox/wallet-connect-panel";
 
 
 
@@ -571,28 +572,15 @@ export function AirdropPage() {
         )}
 
         {!isConnected && !isRegistered && (
-          <div className="space-y-3">
-            <h2 className="text-base font-bold" style={{ color: ORANGE }}>
-              Connect Your Wallet
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Supports MetaMask, Trust Wallet, Phantom, Coinbase & more
-            </p>
-            <span
-              className="inline-block rounded-full border px-2.5 py-1 text-[11px] font-semibold"
-              style={{ color: ORANGE, borderColor: ORANGE }}
-            >
-              Robinhood Chain Testnet
-            </span>
-            <div className="flex justify-center">
-              <AppKitButton />
-            </div>
-
-            <p className="text-center text-[11px] text-muted-foreground">
-              One-time registration fee: {FEE_LABEL}
-            </p>
-          </div>
+          <WalletConnectPanel
+            footer={
+              <p className="text-center text-[11px] text-muted-foreground">
+                One-time registration fee: {FEE_LABEL}
+              </p>
+            }
+          />
         )}
+
 
         {isConnected && isWrongNetwork && !isRegistered && (
           <div className="space-y-3">
