@@ -35,8 +35,7 @@ export default defineConfig({
           // @metamask/connect-evm is browser-only too (mobile wallet protocol,
           // WebRTC/DOM globals) and is only reachable through the lazy,
           // client-only appkit-runtime chunk.
-          if (/^@metamask\/connect-evm(\/|$)/.test(id))
-            return "\0azox-appkit-ssr-stub";
+          if (/^@metamask\/connect-evm(\/|$)/.test(id)) return "\0azox-appkit-ssr-stub";
           if (!/^@reown\/appkit(-adapter-wagmi)?(\/|$)/.test(id)) return null;
           if (id.startsWith("@reown/appkit/networks")) return null;
           return "\0azox-appkit-ssr-stub";
@@ -92,4 +91,3 @@ export default new Proxy({}, { get: () => notAvailable });`;
     },
   },
 });
-
