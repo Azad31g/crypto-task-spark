@@ -535,20 +535,27 @@ export function signClientWatch(provider: unknown) {
     try {
       client.on(name, () => {
         if (name === "session_connect") {
+          observeFrozenSessionTopic(provider);
           diag("session_connect", {
             ...providerSnapshot(provider),
             ...relayState(provider),
-            ...attemptIdentity(provider),
-            proposeTopicPrefix: attemptProposeTopicPrefix,
+            ...frozenAttemptFields(),
+            currentSessionTopicPrefix: frozenSessionTopicPrefix,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
           });
           return;
         }
         if (name === "proposal_expire") {
-          log(name, {
-            proposeTopicPrefix: attemptProposeTopicPrefix,
-            attemptPairingTopicPrefixAtStart: attemptPairingTopicPrefix,
+          observeFrozenSessionTopic(provider);
+          // FROZEN identity only — never currentProposal()/rediscovery here.
+          diag(`signclient event: ${name}`, {
+            ...providerSnapshot(provider),
+            ...relayState(provider),
+            ...frozenAttemptFields(),
+            currentSessionTopicPrefix: frozenSessionTopicPrefix,
+            pendingSessionsCount: pendingSessionTopics(provider).length,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+            totalInboundMessages,
             messagesWithTopic,
             messagesWithNoTopic,
             acksWithTopic,
