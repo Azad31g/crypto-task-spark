@@ -71,7 +71,7 @@ export default new Proxy({}, { get: () => notAvailable });`;
           return eventsPolyfill;
         },
       },
-      },
+
     ],
     resolve: {
       // NOTE: must stay an object map. The shared Lovable config already sets
