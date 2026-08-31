@@ -439,24 +439,75 @@ function attemptIdentity(provider: unknown) {
   };
 }
 
-// --- Per-attempt correlation state (observation only) ----------------------
+// --- FROZEN per-attempt identity (observation only) ------------------------
+// Captured once from the actual tag=1100 relayer_publish event and NEVER
+// re-derived afterwards. proposal_expire MUST use these frozen values only.
 let attemptStartedAt: number | null = null;
 let attemptProposeTopicPrefix: string | null = null;
-let attemptPairingTopicPrefix: string | null = null;
+// Frozen identity of the CURRENT attempt:
+let frozenProposalId: number | null = null; // numeric id, for pendingSessions.get
+let frozenProposalIdPrefix: string | null = null;
+let frozenPairingTopicPrefix: string | null = null;
+let frozenProposalRemainingMs: number | null = null;
+let frozenSessionTopicPrefix: string | null = null;
 let messagesWithTopic = 0;
 let messagesWithNoTopic = 0;
 let acksWithTopic = 0;
 let acksWithNoTopic = 0;
+let totalInboundMessages = 0;
 let messagesOnCurrentPairingTopic = 0;
+let messagesOnProposeTopic = 0;
 let messagesOnSessionTopic = 0;
 
 function elapsedSinceAttempt() {
   return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
 }
 
-function currentPairingPrefix(provider: unknown): string | null {
-  return attemptIdentity(provider).currentPairingTopicPrefix ??
-    attemptPairingTopicPrefix;
+/** Freeze the current proposal as THIS attempt's identity (once, at start). */
+function freezeAttemptIdentity(provider: unknown) {
+  const proposal = currentProposal(provider);
+  frozenProposalId = typeof proposal?.id === "number" ? proposal.id : null;
+  frozenProposalIdPrefix =
+    frozenProposalId === null ? null : String(frozenProposalId).slice(0, 8);
+  frozenPairingTopicPrefix = pfx(proposal?.pairingTopic);
+  frozenProposalRemainingMs = proposal?.expiryTimestamp
+    ? Math.max(0, proposal.expiryTimestamp * 1000 - Date.now())
+    : null;
+  frozenSessionTopicPrefix = null;
+}
+
+/**
+ * Observation-only session-topic discovery: reads engine.pendingSessions for
+ * the FROZEN proposal id. Never infers the session topic from subscriptions.
+ */
+function observeFrozenSessionTopic(provider: unknown) {
+  if (frozenProposalId === null || frozenSessionTopicPrefix !== null) return;
+  try {
+    const pending = (
+      provider as {
+        client?: {
+          engine?: {
+            pendingSessions?: Map<number, { sessionTopic?: string }>;
+          };
+        };
+      }
+    )?.client?.engine?.pendingSessions;
+    const entry = pending?.get?.(frozenProposalId);
+    const p = pfx(entry?.sessionTopic);
+    if (p) frozenSessionTopicPrefix = p;
+  } catch {
+    /* observation only */
+  }
+}
+
+/** Frozen identity as a loggable block. */
+function frozenAttemptFields() {
+  return {
+    attemptProposalIdPrefix: frozenProposalIdPrefix ?? "unavailable",
+    attemptPairingTopicPrefix: frozenPairingTopicPrefix ?? "unavailable",
+    attemptProposeTopicPrefix: attemptProposeTopicPrefix ?? "unavailable",
+    attemptIdentityFrozen: frozenProposalId !== null,
+  };
 }
 
 /** SignClient success/expiry signals on the EXISTING provider.client. */
@@ -484,37 +535,49 @@ export function signClientWatch(provider: unknown) {
     try {
       client.on(name, () => {
         if (name === "session_connect") {
+          observeFrozenSessionTopic(provider);
           diag("session_connect", {
             ...providerSnapshot(provider),
             ...relayState(provider),
-            ...attemptIdentity(provider),
-            proposeTopicPrefix: attemptProposeTopicPrefix,
+            ...frozenAttemptFields(),
+            currentSessionTopicPrefix: frozenSessionTopicPrefix,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
           });
           return;
         }
         if (name === "proposal_expire") {
-          log(name, {
-            proposeTopicPrefix: attemptProposeTopicPrefix,
-            attemptPairingTopicPrefixAtStart: attemptPairingTopicPrefix,
+          observeFrozenSessionTopic(provider);
+          // FROZEN identity only — never currentProposal()/rediscovery here.
+          diag(`signclient event: ${name}`, {
+            ...providerSnapshot(provider),
+            ...relayState(provider),
+            ...frozenAttemptFields(),
+            currentSessionTopicPrefix: frozenSessionTopicPrefix,
+            pendingSessionsCount: pendingSessionTopics(provider).length,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+            totalInboundMessages,
             messagesWithTopic,
             messagesWithNoTopic,
             acksWithTopic,
             acksWithNoTopic,
             messagesOnCurrentPairingTopic,
+            messagesOnProposeTopic,
             messagesOnSessionTopic,
-            // Explicit honesty guard: "the wallet sent nothing" may only be
-            // claimed when the current pairing topic is known AND no incoming
-            // message lacked a topic.
+            // Final verdict honesty guard: "the wallet sent nothing" may ONLY
+            // be claimed when (1) attempt identity was captured from a real
+            // tag=1100 event, (2) the pairing topic is frozen, (3) every
+            // inbound relayer message exposed its topic, (4) observation ran
+            // until proposal_expire, and (5)+(6) no message matched the frozen
+            // pairing/session topics. Anything else -> "unable to determine".
             verdict:
-              !attemptIdentity(provider).currentPairingTopicKnown ||
+              !attemptStartedAt ||
+              frozenPairingTopicPrefix === null ||
               messagesWithNoTopic > 0
                 ? "unable to determine"
                 : messagesOnCurrentPairingTopic === 0 &&
                     messagesOnSessionTopic === 0
-                  ? "no incoming message on the current attempt topics"
-                  : "incoming message observed on the current attempt topics",
+                  ? "no incoming message on the frozen attempt topics"
+                  : "incoming message observed on the frozen attempt topics",
           });
           return;
         }
@@ -545,21 +608,27 @@ export function relayerWatch(provider: unknown) {
       relayer.on(name, (payload?: unknown) => {
         const extra: Record<string, unknown> = {};
         if (name === "relayer_message" || name === "relayer_message_ack") {
+          // Verified against installed @walletconnect/core 2.23.7:
+          // `relayer_message` emits { topic, message, publishedAt, ... }
+          // (topic ALWAYS present); `relayer_message_ack` emits the raw
+          // JSON-RPC ack `{ id, result }` — it has NO topic, ever. Acks are
+          // therefore never topic-correlated.
           const rawTopic = (payload as { topic?: string } | undefined)?.topic;
           const topicPresent = typeof rawTopic === "string" && rawTopic !== "";
           // ONLY an 8-char topic prefix — never the message payload.
           const topicPrefix = topicPresent ? pfx(rawTopic) : null;
-          const ident = attemptIdentity(provider);
           if (name === "relayer_message") {
+            totalInboundMessages += 1;
+            observeFrozenSessionTopic(provider);
             if (topicPresent) {
               messagesWithTopic += 1;
-              if (
-                topicPrefix &&
-                topicPrefix === currentPairingPrefix(provider)
-              ) {
+              if (topicPrefix && topicPrefix === frozenPairingTopicPrefix) {
                 messagesOnCurrentPairingTopic += 1;
               }
-              if (topicPrefix && topicPrefix === ident.sessionTopicPrefix) {
+              if (topicPrefix && topicPrefix === attemptProposeTopicPrefix) {
+                messagesOnProposeTopic += 1;
+              }
+              if (topicPrefix && topicPrefix === frozenSessionTopicPrefix) {
                 messagesOnSessionTopic += 1;
               }
             } else {
@@ -573,20 +642,25 @@ export function relayerWatch(provider: unknown) {
           }
           extra["topicPresent"] = topicPresent;
           extra["topicPrefix"] = topicPrefix;
-          extra["matchesCurrentPairingTopic"] = topicPresent
-            ? topicPrefix === currentPairingPrefix(provider)
+          extra["matchesAttemptPairingTopic"] = topicPresent
+            ? topicPrefix === frozenPairingTopicPrefix
             : null;
-          extra["matchesSessionTopic"] = topicPresent
-            ? topicPrefix === ident.sessionTopicPrefix
+          extra["matchesProposeTopic"] = topicPresent
+            ? topicPrefix === attemptProposeTopicPrefix
+            : null;
+          extra["matchesCurrentSessionTopic"] = topicPresent
+            ? topicPrefix === frozenSessionTopicPrefix
             : null;
           extra["elapsedMsSinceConnectionAttempt"] = elapsedSinceAttempt();
+          extra["totalInboundMessages"] = totalInboundMessages;
           extra["messagesWithTopic"] = messagesWithTopic;
           extra["messagesWithNoTopic"] = messagesWithNoTopic;
           extra["acksWithTopic"] = acksWithTopic;
           extra["acksWithNoTopic"] = acksWithNoTopic;
           extra["messagesOnCurrentPairingTopic"] = messagesOnCurrentPairingTopic;
+          extra["messagesOnProposeTopic"] = messagesOnProposeTopic;
           extra["messagesOnSessionTopic"] = messagesOnSessionTopic;
-          Object.assign(extra, ident);
+          Object.assign(extra, frozenAttemptFields());
         }
         diag(`relayer event: ${name}`, {
           ...relayState(provider),
@@ -602,33 +676,48 @@ export function relayerWatch(provider: unknown) {
   // start of every connect() attempt. Observational only — no publish is made.
   try {
     relayer.on("relayer_publish", (payload?: unknown) => {
-      const tag = (payload as { opts?: { tag?: number } } | undefined)?.opts
-        ?.tag;
-      if (tag !== 1100) return;
+      // Verified against INSTALLED @walletconnect/core 2.23.7 Publisher:
+      //   publish(topic, message, opts) builds
+      //     request = { id, method, params: { topic, message, ttl, prompt, tag } }
+      //   and emits events.emit("relayer_publish", { ...request, ...opts }).
+      // Therefore the tag is exposed at BOTH verified locations:
+      //   payload.params.tag  (request params — always set, defaults to 0)
+      //   payload.tag         (opts spread — set when caller passed opts.tag)
+      // There is NO payload.opts.tag in the installed version.
+      const p = payload as
+        | { params?: { tag?: number; topic?: string }; tag?: number }
+        | undefined;
+      const detectedTag = p?.params?.tag ?? p?.tag ?? null;
+      if (detectedTag !== 1100) return;
       attemptStartedAt = Date.now();
       const snap = relayState(provider);
-      const ident = attemptIdentity(provider);
-      // In the installed engine, wc_sessionPropose is published on the PAIRING
-      // topic (engine.sendProposeSession -> sendRequest on proposal.pairingTopic).
-      attemptProposeTopicPrefix = pfx(
-        (payload as { topic?: string } | undefined)?.topic,
-      );
-      attemptPairingTopicPrefix = ident.currentPairingTopicPrefix;
+      // Freeze THIS attempt's identity immediately — never re-derived later.
+      freezeAttemptIdentity(provider);
+      // The propose topic lives on the PAIRING topic, from request params.
+      attemptProposeTopicPrefix = pfx(p?.params?.topic);
       messagesWithTopic = 0;
       messagesWithNoTopic = 0;
       acksWithTopic = 0;
       acksWithNoTopic = 0;
+      totalInboundMessages = 0;
       messagesOnCurrentPairingTopic = 0;
+      messagesOnProposeTopic = 0;
       messagesOnSessionTopic = 0;
       diag("connection-attempt-start", {
         ...providerSnapshot(provider),
-        ...ident,
+        ...frozenAttemptFields(),
+        detectedTag,
         proposeTopicPrefix: attemptProposeTopicPrefix,
-        proposeTopicIsCurrentPairingTopic:
+        currentPairingTopicPrefix: frozenPairingTopicPrefix,
+        currentProposalExists: frozenProposalId !== null,
+        pendingSessionsCount: pendingSessionTopics(provider).length,
+        proposalRemainingMs: frozenProposalRemainingMs,
+        proposeTopicIsFrozenPairingTopic:
           attemptProposeTopicPrefix !== null &&
-          attemptProposeTopicPrefix === ident.currentPairingTopicPrefix,
+          attemptProposeTopicPrefix === frozenPairingTopicPrefix,
         subscriptionCount: snap.subscriptionCount,
         relayConnected: snap.relayConnected,
+        elapsedMsSinceConnectionAttempt: 0,
       });
     });
   } catch {
