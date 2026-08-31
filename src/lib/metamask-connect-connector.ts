@@ -40,11 +40,7 @@ const SUPPORTED_NETWORKS: Record<Hex, string> = {
 };
 
 /** MetaMask's official EIP-6963 rdns identifiers. */
-const METAMASK_RDNS = [
-  "io.metamask",
-  "io.metamask.mobile",
-  "io.metamask.flask",
-] as const;
+const METAMASK_RDNS = ["io.metamask", "io.metamask.mobile", "io.metamask.flask"] as const;
 
 function isUserRejection(error: unknown): boolean {
   const code = (error as { code?: number } | undefined)?.code;
@@ -147,9 +143,7 @@ export function metaMaskConnect() {
       }) {
         const client = await getInstance();
         try {
-          const requestedChainIds = config.chains.map(
-            (chain) => numberToHex(chain.id) as Hex,
-          );
+          const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
           const result = await client.connect({ chainIds: requestedChainIds });
           const accounts = result.accounts.map((account) => getAddress(account));
 
@@ -169,8 +163,7 @@ export function metaMaskConnect() {
             chainId: number;
           };
         } catch (error) {
-          if (isUserRejection(error))
-            throw new UserRejectedRequestError(error as Error);
+          if (isUserRejection(error)) throw new UserRejectedRequestError(error as Error);
           throw error;
         }
       },
@@ -241,8 +234,7 @@ export function metaMaskConnect() {
           config.emitter.emit("change", { chainId });
           return chain;
         } catch (error) {
-          if (isUserRejection(error))
-            throw new UserRejectedRequestError(error as Error);
+          if (isUserRejection(error)) throw new UserRejectedRequestError(error as Error);
           throw new SwitchChainError(error as Error);
         }
       },
