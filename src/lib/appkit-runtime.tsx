@@ -32,19 +32,14 @@ type TgWebApp = {
 
 function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
-  const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram
-    ?.WebApp;
+  const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp;
   if (!tg) return;
   // Capture the original native window.open BEFORE replacing it. Every wallet
   // launch URL that is not a Telegram link must pass through unchanged — AppKit
   // builds these URLs; the bridge only transports them. Never inspect, decode
   // or rewrite the URL, and never route it through Telegram.WebApp.openLink().
   const nativeOpen = window.open.bind(window);
-  window.open = ((
-    url?: string | URL,
-    target?: string,
-    features?: string,
-  ): Window | null => {
+  window.open = ((url?: string | URL, target?: string, features?: string): Window | null => {
     const href = String(url ?? "");
     if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
       tg.openTelegramLink?.(href);
@@ -106,8 +101,7 @@ const appKitReady: Promise<void> = (async () => {
   // requestedChains list, concludes the chains are stale and calls
   // provider.disconnect(), destroying the valid session.
   const restoredSession = universalProvider.session;
-  const restoredAccounts =
-    restoredSession?.namespaces?.["eip155"]?.accounts ?? [];
+  const restoredAccounts = restoredSession?.namespaces?.["eip155"]?.accounts ?? [];
   const restoredChainIds = Array.from(
     new Set(
       restoredAccounts
@@ -116,10 +110,7 @@ const appKitReady: Promise<void> = (async () => {
     ),
   );
   if (restoredSession && restoredChainIds.length > 0) {
-    await wagmiStorage.setItem(
-      "walletConnect.requestedChains",
-      restoredChainIds,
-    );
+    await wagmiStorage.setItem("walletConnect.requestedChains", restoredChainIds);
   }
 
   // Hybrid wallet layer: the official MetaMask Connect wagmi connector is only
