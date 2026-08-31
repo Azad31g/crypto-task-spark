@@ -685,10 +685,48 @@ export function relayerWatch(provider: unknown) {
       //   payload.tag         (opts spread — set when caller passed opts.tag)
       // There is NO payload.opts.tag in the installed version.
       const p = payload as
-        | { params?: { tag?: number; topic?: string }; tag?: number }
+        | {
+            method?: string;
+            params?: { tag?: number; topic?: string };
+            tag?: number;
+          }
         | undefined;
-      const detectedTag = p?.params?.tag ?? p?.tag ?? null;
-      if (detectedTag !== 1100) return;
+
+      // --- RAW observation of EVERY publish (no tag pre-filter) ------------
+      relayerPublishObserved = true;
+      relayerPublishCount += 1;
+      const method = typeof p?.method === "string" ? p.method : null;
+      const paramsTag =
+        typeof p?.params?.tag === "number" ? p.params.tag : null;
+      const topLevelTag = typeof p?.tag === "number" ? p.tag : null;
+      const paramsTopicPrefix = pfx(p?.params?.topic);
+      const payloadKeys = p && typeof p === "object" ? Object.keys(p) : [];
+      const paramsKeys =
+        p?.params && typeof p.params === "object" ? Object.keys(p.params) : [];
+      if (method) observedMethods.add(method);
+      if (paramsTag !== null) observedParamsTags.add(paramsTag);
+      if (topLevelTag !== null) observedTopLevelTags.add(topLevelTag);
+      for (const k of payloadKeys) observedPayloadKeys.add(k);
+      for (const k of paramsKeys) observedParamsKeys.add(k);
+      // Never log message payloads, full topics, or URIs — keys/prefixes only.
+      diag("relayer_publish raw", {
+        eventReceived: true,
+        method,
+        paramsTag,
+        topLevelTag,
+        paramsTopicPrefix,
+        payloadKeys: payloadKeys.join(","),
+        paramsKeys: paramsKeys.join(","),
+        relayConnected: core(provider)?.relayer?.connected ?? null,
+        elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+      });
+      // ----------------------------------------------------------------------
+
+      // Tag 1100 detection at EITHER verified location — no silent choice.
+      if (paramsTag !== 1100 && topLevelTag !== 1100) return;
+      tag1100Observed = true;
+      tag1100Count += 1;
+      const detectedTag = paramsTag === 1100 ? paramsTag : topLevelTag;
       attemptStartedAt = Date.now();
       const snap = relayState(provider);
       // Freeze THIS attempt's identity immediately — never re-derived later.
