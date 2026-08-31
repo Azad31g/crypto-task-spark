@@ -140,7 +140,11 @@ export function metaMaskConnect() {
         return client.getProvider();
       },
 
-      async connect(parameters?: { chainId?: number; isReconnecting?: boolean }) {
+      async connect<withCapabilities extends boolean = false>(parameters?: {
+        chainId?: number | undefined;
+        isReconnecting?: boolean | undefined;
+        withCapabilities?: withCapabilities | boolean | undefined;
+      }) {
         const client = await getInstance();
         try {
           const requestedChainIds = config.chains.map(
@@ -156,7 +160,14 @@ export function metaMaskConnect() {
             currentChainId = chain.id;
           }
 
-          return { accounts, chainId: currentChainId };
+          // Minimal cast: this connector implements the plain (non-capability)
+          // variant of wagmi's generic `connect` signature.
+          return { accounts, chainId: currentChainId } as {
+            accounts: withCapabilities extends true
+              ? readonly { address: Address; capabilities: Record<string, unknown> }[]
+              : readonly Address[];
+            chainId: number;
+          };
         } catch (error) {
           if (isUserRejection(error))
             throw new UserRejectedRequestError(error as Error);
