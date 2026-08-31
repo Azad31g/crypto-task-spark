@@ -14,6 +14,7 @@
 // @metamask/sdk packages.
 import { createConnector } from "wagmi";
 import {
+  ResourceUnavailableRpcError,
   SwitchChainError,
   UserRejectedRequestError,
   getAddress,
@@ -77,10 +78,13 @@ export function metaMaskConnect() {
     };
 
     const onDisconnect = async (error?: Error) => {
-      // Official behavior: MetaMask emits 1013 ("try again later") while it is
-      // merely reconnecting. Only treat it as a real disconnect when the
-      // account is actually gone.
-      if ((error as { code?: number } | undefined)?.code === 1013) {
+      // Official behavior: MetaMask emits ResourceUnavailableRpcError (1013,
+      // "try again later") while it is merely reconnecting. Only treat it as
+      // a real disconnect when the account is actually gone.
+      if (
+        error instanceof ResourceUnavailableRpcError ||
+        (error as { code?: number } | undefined)?.code === 1013
+      ) {
         const accounts = await connector.getAccounts().catch(() => []);
         if (accounts.length > 0) return;
       }
@@ -113,9 +117,13 @@ export function metaMaskConnect() {
               connect: () => {
                 void onConnect();
               },
-              disconnect: () => {
-                void onDisconnect();
-              },
+              // Official behavior: forward the provider error so the 1013
+              // transient-disconnect guard in `onDisconnect` can work. The
+              // installed 2.1.1 event map types this handler as `() => void`,
+              // but the provider does pass the error at runtime.
+              disconnect: ((error?: Error) => {
+                void onDisconnect(error);
+              }) as () => void,
               displayUri: onDisplayUri,
             },
           });
@@ -143,9 +151,16 @@ export function metaMaskConnect() {
       }) {
         const client = await getInstance();
         try {
-          const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
-          const result = await client.connect({ chainIds: requestedChainIds });
-          const accounts = result.accounts.map((account) => getAddress(account));
+          // Official behavior: on wagmi reconnect (reconnectOnMount), first
+          // restore the existing MetaMask Connect session/accounts; only open
+          // a fresh connection request when nothing was restored.
+          let accounts: readonly Address[] = [];
+          if (parameters?.isReconnecting) accounts = await this.getAccounts().catch(() => []);
+          if (accounts.length === 0) {
+            const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
+            const result = await client.connect({ chainIds: requestedChainIds });
+            accounts = result.accounts.map((account) => getAddress(account));
+          }
 
           let currentChainId = await this.getChainId();
           const desiredChainId = parameters?.chainId;
