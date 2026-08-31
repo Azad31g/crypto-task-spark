@@ -32,16 +32,23 @@ export default defineConfig({
         enforce: "pre" as const,
         resolveId(this: { environment?: { name?: string } }, id: string) {
           if (this.environment?.name === "client") return null;
+          // @metamask/connect-evm is browser-only too (mobile wallet protocol,
+          // WebRTC/DOM globals) and is only reachable through the lazy,
+          // client-only appkit-runtime chunk.
+          if (/^@metamask\/connect-evm(\/|$)/.test(id))
+            return "\0azox-appkit-ssr-stub";
           if (!/^@reown\/appkit(-adapter-wagmi)?(\/|$)/.test(id)) return null;
           if (id.startsWith("@reown/appkit/networks")) return null;
           return "\0azox-appkit-ssr-stub";
         },
+
         load(id: string) {
           if (id !== "\0azox-appkit-ssr-stub") return null;
           return `const notAvailable = () => { throw new Error("@reown/appkit is browser-only and must not run on the server"); };
 export const WagmiAdapter = notAvailable;
 export const createAppKit = notAvailable;
 export const AppKitButton = notAvailable;
+export const createEVMClient = notAvailable;
 export default new Proxy({}, { get: () => notAvailable });`;
         },
       },
@@ -63,6 +70,7 @@ export default new Proxy({}, { get: () => notAvailable });`;
           return eventsPolyfill;
         },
       },
+
     ],
     resolve: {
       // NOTE: must stay an object map. The shared Lovable config already sets
