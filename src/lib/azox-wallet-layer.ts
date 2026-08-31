@@ -107,4 +107,3 @@ export const WALLET_MODE_LABELS: Record<
     hint: "Supports MetaMask, Trust Wallet, Phantom, Coinbase & more",
   },
 };
-
