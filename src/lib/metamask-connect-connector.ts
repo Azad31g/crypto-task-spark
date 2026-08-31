@@ -30,6 +30,7 @@ import type {
   MetamaskConnectEVM,
   createEVMClient as CreateEVMClient,
 } from "@metamask/connect-evm";
+import { ensureBrowserBuffer } from "./browser-buffer";
 import { robinhoodTestnet, APP_URL } from "./wagmi-config";
 import { METAMASK_CONNECTOR_ID } from "./azox-wallet-layer";
 
@@ -99,6 +100,10 @@ export function metaMaskConnect() {
       if (instance) return instance;
       if (!instancePromise) {
         instancePromise = (async () => {
+          // The browser bundle's MWP KeyManager calls global Buffer.from().
+          // Install the package's browser Buffer before evaluating the lazy SDK
+          // runtime; this remains client-only and does not add broad Node shims.
+          ensureBrowserBuffer();
           // Runtime import happens here only — never at module scope.
           const { createEVMClient } = (await import("@metamask/connect-evm")) as {
             createEVMClient: typeof CreateEVMClient;

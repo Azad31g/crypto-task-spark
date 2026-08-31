@@ -107,21 +107,3 @@ export const WALLET_MODE_LABELS: Record<
     hint: "Supports MetaMask, Trust Wallet, Phantom, Coinbase & more",
   },
 };
-
-/**
- * Explicit, user-initiated fallback: opens the AZOX HTTPS URL in the external
- * browser through Telegram's documented `WebApp.openLink`. This bridge is used
- * ONLY for this HTTPS AZOX URL — never for wallet deep links, which AppKit /
- * MetaMask Connect own themselves. Never call this automatically.
- */
-export function openAzoxInExternalBrowser(): void {
-  if (typeof window === "undefined") return;
-  const url = window.location.href;
-  const webApp = window.Telegram?.WebApp as
-    { openLink?: (u: string, o?: { try_instant_view?: boolean }) => void } | undefined;
-  if (webApp?.openLink) {
-    webApp.openLink(url, { try_instant_view: false });
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
