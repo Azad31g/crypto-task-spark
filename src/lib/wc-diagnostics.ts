@@ -459,6 +459,35 @@ let messagesOnCurrentPairingTopic = 0;
 let messagesOnProposeTopic = 0;
 let messagesOnSessionTopic = 0;
 
+// --- Raw relayer_publish observation state (observation only) --------------
+// Populated by the relayer_publish handler inside relayerWatch(). Declared
+// at module scope so proposal_expire/session_connect can report whether ANY
+// publish event was observed during the attempt.
+let relayerPublishObserved = false;
+let tag1100Observed = false;
+let relayerPublishCount = 0;
+let tag1100Count = 0;
+const observedMethods = new Set<string>();
+const observedParamsTags = new Set<number>();
+const observedTopLevelTags = new Set<number>();
+const observedPayloadKeys = new Set<string>();
+const observedParamsKeys = new Set<string>();
+
+/** Observation-only summary of every relayer_publish seen so far. */
+function publishObservationSummary() {
+  return {
+    relayerPublishObserved,
+    tag1100Observed,
+    relayerPublishCount,
+    tag1100Count,
+    observedPublishMethods: Array.from(observedMethods),
+    observedParamsTags: Array.from(observedParamsTags),
+    observedTopLevelTags: Array.from(observedTopLevelTags),
+    observedPayloadKeys: Array.from(observedPayloadKeys),
+    observedParamsKeys: Array.from(observedParamsKeys),
+  };
+}
+
 function elapsedSinceAttempt() {
   return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
 }
