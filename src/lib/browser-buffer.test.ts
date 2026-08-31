@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Buffer } from "buffer/";
+import { Buffer } from "buffer/index.js";
 import { ensureBrowserBuffer } from "./browser-buffer";
 
 describe("ensureBrowserBuffer", () => {
