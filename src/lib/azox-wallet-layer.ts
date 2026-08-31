@@ -20,33 +20,73 @@ function telegramPlatform(): string | null {
  * `tgWebAppPlatform`, then the Android user agent as a last resort — but always
  * gated behind `isTelegramMiniApp()` so ordinary Android browsers are excluded.
  */
-export function isTelegramAndroidMiniApp(): boolean {
-  if (typeof window === "undefined") return false;
-  if (!isTelegramMiniApp()) return false;
+export type WalletEnvironmentSignals = {
+  /** Result of the strict Telegram Mini App runtime check. */
+  isMiniApp: boolean;
+  /** `Telegram.WebApp.platform`, when Telegram reports one. */
+  platform?: string | null;
+  /** `tgWebAppPlatform` launch parameter, when present. */
+  launchPlatform?: string | null;
+  userAgent?: string;
+};
 
-  const platform = telegramPlatform();
+const ANDROID_PLATFORMS = new Set(["android", "android_x"]);
+
+/** Pure, deterministic environment resolution — no DOM access. */
+export function resolveWalletEnvironment(
+  signals: WalletEnvironmentSignals,
+): WalletEnvironment {
+  if (!signals.isMiniApp) return "web";
+
+  const platform = signals.platform;
   if (platform) {
-    if (platform === "android" || platform === "android_x") return true;
+    if (ANDROID_PLATFORMS.has(platform)) return "telegram-android";
     // A concrete non-Android platform (ios, tdesktop, web, macos...) is decisive.
-    if (platform !== "unknown") return false;
+    if (platform !== "unknown") return "telegram-other";
   }
 
-  const launchParams = new URLSearchParams(
+  const launchPlatform = signals.launchPlatform;
+  if (launchPlatform) {
+    return ANDROID_PLATFORMS.has(launchPlatform)
+      ? "telegram-android"
+      : "telegram-other";
+  }
+
+  return /android/i.test(signals.userAgent ?? "")
+    ? "telegram-android"
+    : "telegram-other";
+}
+
+/** Which connection path the UI must offer as the primary action. */
+export function primaryWalletTransport(
+  env: WalletEnvironment,
+): "metaMask" | "appKit" {
+  return env === "telegram-android" ? "metaMask" : "appKit";
+}
+
+function launchPlatformParam(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(
     `${window.location.search.replace(/^\?/, "")}&${window.location.hash.replace(/^#/, "")}`,
   );
-  const launchPlatform = launchParams.get("tgWebAppPlatform");
-  if (launchPlatform) {
-    return launchPlatform === "android" || launchPlatform === "android_x";
-  }
+  return params.get("tgWebAppPlatform");
+}
 
-  return /android/i.test(navigator.userAgent);
+export function isTelegramAndroidMiniApp(): boolean {
+  return detectWalletEnvironment() === "telegram-android";
 }
 
 export function detectWalletEnvironment(): WalletEnvironment {
+  // SSR / worker: always the web-safe path, never MetaMask Connect.
   if (typeof window === "undefined") return "web";
-  if (!isTelegramMiniApp()) return "web";
-  return isTelegramAndroidMiniApp() ? "telegram-android" : "telegram-other";
+  return resolveWalletEnvironment({
+    isMiniApp: isTelegramMiniApp(),
+    platform: telegramPlatform(),
+    launchPlatform: launchPlatformParam(),
+    userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
+  });
 }
+
 
 export const WALLET_MODE_LABELS: Record<
   WalletEnvironment,
