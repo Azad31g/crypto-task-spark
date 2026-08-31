@@ -33,9 +33,7 @@ export type WalletEnvironmentSignals = {
 const ANDROID_PLATFORMS = new Set(["android", "android_x"]);
 
 /** Pure, deterministic environment resolution — no DOM access. */
-export function resolveWalletEnvironment(
-  signals: WalletEnvironmentSignals,
-): WalletEnvironment {
+export function resolveWalletEnvironment(signals: WalletEnvironmentSignals): WalletEnvironment {
   if (!signals.isMiniApp) return "web";
 
   const platform = signals.platform;
@@ -47,20 +45,14 @@ export function resolveWalletEnvironment(
 
   const launchPlatform = signals.launchPlatform;
   if (launchPlatform) {
-    return ANDROID_PLATFORMS.has(launchPlatform)
-      ? "telegram-android"
-      : "telegram-other";
+    return ANDROID_PLATFORMS.has(launchPlatform) ? "telegram-android" : "telegram-other";
   }
 
-  return /android/i.test(signals.userAgent ?? "")
-    ? "telegram-android"
-    : "telegram-other";
+  return /android/i.test(signals.userAgent ?? "") ? "telegram-android" : "telegram-other";
 }
 
 /** Which connection path the UI must offer as the primary action. */
-export function primaryWalletTransport(
-  env: WalletEnvironment,
-): "metaMask" | "appKit" {
+export function primaryWalletTransport(env: WalletEnvironment): "metaMask" | "appKit" {
   return env === "telegram-android" ? "metaMask" : "appKit";
 }
 
@@ -86,7 +78,6 @@ export function detectWalletEnvironment(): WalletEnvironment {
     userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
   });
 }
-
 
 export const WALLET_MODE_LABELS: Record<
   WalletEnvironment,

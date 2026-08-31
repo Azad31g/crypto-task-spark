@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  primaryWalletTransport,
-  resolveWalletEnvironment,
-} from "./azox-wallet-layer";
+import { primaryWalletTransport, resolveWalletEnvironment } from "./azox-wallet-layer";
 
 const ANDROID_UA =
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36";
@@ -18,16 +15,14 @@ describe("resolveWalletEnvironment", () => {
         userAgent: ANDROID_UA,
       }),
     ).toBe("telegram-android");
-    expect(
-      resolveWalletEnvironment({ isMiniApp: true, platform: "android_x" }),
-    ).toBe("telegram-android");
+    expect(resolveWalletEnvironment({ isMiniApp: true, platform: "android_x" })).toBe(
+      "telegram-android",
+    );
   });
 
   it("keeps Telegram iOS and desktop on AppKit", () => {
     for (const platform of ["ios", "tdesktop", "macos", "weba", "web"]) {
-      expect(resolveWalletEnvironment({ isMiniApp: true, platform })).toBe(
-        "telegram-other",
-      );
+      expect(resolveWalletEnvironment({ isMiniApp: true, platform })).toBe("telegram-other");
     }
   });
 
@@ -63,12 +58,12 @@ describe("resolveWalletEnvironment", () => {
   });
 
   it("uses the user agent only as a last resort inside a Mini App", () => {
-    expect(
-      resolveWalletEnvironment({ isMiniApp: true, userAgent: ANDROID_UA }),
-    ).toBe("telegram-android");
-    expect(
-      resolveWalletEnvironment({ isMiniApp: true, userAgent: IPHONE_UA }),
-    ).toBe("telegram-other");
+    expect(resolveWalletEnvironment({ isMiniApp: true, userAgent: ANDROID_UA })).toBe(
+      "telegram-android",
+    );
+    expect(resolveWalletEnvironment({ isMiniApp: true, userAgent: IPHONE_UA })).toBe(
+      "telegram-other",
+    );
   });
 
   it("treats a server render as the web-safe environment", () => {
