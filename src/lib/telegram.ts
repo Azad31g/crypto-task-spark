@@ -124,10 +124,6 @@ export function expandApp(): void {
 
 export function initTelegram(): TelegramUser | null {
   const app = getWebApp();
-  console.log("[telegram] window.Telegram:", typeof window !== "undefined" ? window.Telegram : "SSR");
-  console.log("[telegram] WebApp:", app);
-  console.log("[telegram] initDataUnsafe:", app?.initDataUnsafe);
-  console.log("[telegram] user:", app?.initDataUnsafe?.user);
   if (!app) return null;
   try {
     app.ready();
