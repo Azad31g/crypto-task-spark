@@ -439,24 +439,75 @@ function attemptIdentity(provider: unknown) {
   };
 }
 
-// --- Per-attempt correlation state (observation only) ----------------------
+// --- FROZEN per-attempt identity (observation only) ------------------------
+// Captured once from the actual tag=1100 relayer_publish event and NEVER
+// re-derived afterwards. proposal_expire MUST use these frozen values only.
 let attemptStartedAt: number | null = null;
 let attemptProposeTopicPrefix: string | null = null;
-let attemptPairingTopicPrefix: string | null = null;
+// Frozen identity of the CURRENT attempt:
+let frozenProposalId: number | null = null; // numeric id, for pendingSessions.get
+let frozenProposalIdPrefix: string | null = null;
+let frozenPairingTopicPrefix: string | null = null;
+let frozenProposalRemainingMs: number | null = null;
+let frozenSessionTopicPrefix: string | null = null;
 let messagesWithTopic = 0;
 let messagesWithNoTopic = 0;
 let acksWithTopic = 0;
 let acksWithNoTopic = 0;
+let totalInboundMessages = 0;
 let messagesOnCurrentPairingTopic = 0;
+let messagesOnProposeTopic = 0;
 let messagesOnSessionTopic = 0;
 
 function elapsedSinceAttempt() {
   return attemptStartedAt === null ? null : Date.now() - attemptStartedAt;
 }
 
-function currentPairingPrefix(provider: unknown): string | null {
-  return attemptIdentity(provider).currentPairingTopicPrefix ??
-    attemptPairingTopicPrefix;
+/** Freeze the current proposal as THIS attempt's identity (once, at start). */
+function freezeAttemptIdentity(provider: unknown) {
+  const proposal = currentProposal(provider);
+  frozenProposalId = typeof proposal?.id === "number" ? proposal.id : null;
+  frozenProposalIdPrefix =
+    frozenProposalId === null ? null : String(frozenProposalId).slice(0, 8);
+  frozenPairingTopicPrefix = pfx(proposal?.pairingTopic);
+  frozenProposalRemainingMs = proposal?.expiryTimestamp
+    ? Math.max(0, proposal.expiryTimestamp * 1000 - Date.now())
+    : null;
+  frozenSessionTopicPrefix = null;
+}
+
+/**
+ * Observation-only session-topic discovery: reads engine.pendingSessions for
+ * the FROZEN proposal id. Never infers the session topic from subscriptions.
+ */
+function observeFrozenSessionTopic(provider: unknown) {
+  if (frozenProposalId === null || frozenSessionTopicPrefix !== null) return;
+  try {
+    const pending = (
+      provider as {
+        client?: {
+          engine?: {
+            pendingSessions?: Map<number, { sessionTopic?: string }>;
+          };
+        };
+      }
+    )?.client?.engine?.pendingSessions;
+    const entry = pending?.get?.(frozenProposalId);
+    const p = pfx(entry?.sessionTopic);
+    if (p) frozenSessionTopicPrefix = p;
+  } catch {
+    /* observation only */
+  }
+}
+
+/** Frozen identity as a loggable block. */
+function frozenAttemptFields() {
+  return {
+    attemptProposalIdPrefix: frozenProposalIdPrefix ?? "unavailable",
+    attemptPairingTopicPrefix: frozenPairingTopicPrefix ?? "unavailable",
+    attemptProposeTopicPrefix: attemptProposeTopicPrefix ?? "unavailable",
+    attemptIdentityFrozen: frozenProposalId !== null,
+  };
 }
 
 /** SignClient success/expiry signals on the EXISTING provider.client. */
