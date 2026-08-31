@@ -162,7 +162,7 @@ export function metaMaskConnect() {
 
           // Minimal cast: this connector implements the plain (non-capability)
           // variant of wagmi's generic `connect` signature.
-          return { accounts, chainId: currentChainId } as {
+          return { accounts, chainId: currentChainId } as unknown as {
             accounts: withCapabilities extends true
               ? readonly { address: Address; capabilities: Record<string, unknown> }[]
               : readonly Address[];
