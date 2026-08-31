@@ -676,33 +676,48 @@ export function relayerWatch(provider: unknown) {
   // start of every connect() attempt. Observational only — no publish is made.
   try {
     relayer.on("relayer_publish", (payload?: unknown) => {
-      const tag = (payload as { opts?: { tag?: number } } | undefined)?.opts
-        ?.tag;
-      if (tag !== 1100) return;
+      // Verified against INSTALLED @walletconnect/core 2.23.7 Publisher:
+      //   publish(topic, message, opts) builds
+      //     request = { id, method, params: { topic, message, ttl, prompt, tag } }
+      //   and emits events.emit("relayer_publish", { ...request, ...opts }).
+      // Therefore the tag is exposed at BOTH verified locations:
+      //   payload.params.tag  (request params — always set, defaults to 0)
+      //   payload.tag         (opts spread — set when caller passed opts.tag)
+      // There is NO payload.opts.tag in the installed version.
+      const p = payload as
+        | { params?: { tag?: number; topic?: string }; tag?: number }
+        | undefined;
+      const detectedTag = p?.params?.tag ?? p?.tag ?? null;
+      if (detectedTag !== 1100) return;
       attemptStartedAt = Date.now();
       const snap = relayState(provider);
-      const ident = attemptIdentity(provider);
-      // In the installed engine, wc_sessionPropose is published on the PAIRING
-      // topic (engine.sendProposeSession -> sendRequest on proposal.pairingTopic).
-      attemptProposeTopicPrefix = pfx(
-        (payload as { topic?: string } | undefined)?.topic,
-      );
-      attemptPairingTopicPrefix = ident.currentPairingTopicPrefix;
+      // Freeze THIS attempt's identity immediately — never re-derived later.
+      freezeAttemptIdentity(provider);
+      // The propose topic lives on the PAIRING topic, from request params.
+      attemptProposeTopicPrefix = pfx(p?.params?.topic);
       messagesWithTopic = 0;
       messagesWithNoTopic = 0;
       acksWithTopic = 0;
       acksWithNoTopic = 0;
+      totalInboundMessages = 0;
       messagesOnCurrentPairingTopic = 0;
+      messagesOnProposeTopic = 0;
       messagesOnSessionTopic = 0;
       diag("connection-attempt-start", {
         ...providerSnapshot(provider),
-        ...ident,
+        ...frozenAttemptFields(),
+        detectedTag,
         proposeTopicPrefix: attemptProposeTopicPrefix,
-        proposeTopicIsCurrentPairingTopic:
+        currentPairingTopicPrefix: frozenPairingTopicPrefix,
+        currentProposalExists: frozenProposalId !== null,
+        pendingSessionsCount: pendingSessionTopics(provider).length,
+        proposalRemainingMs: frozenProposalRemainingMs,
+        proposeTopicIsFrozenPairingTopic:
           attemptProposeTopicPrefix !== null &&
-          attemptProposeTopicPrefix === ident.currentPairingTopicPrefix,
+          attemptProposeTopicPrefix === frozenPairingTopicPrefix,
         subscriptionCount: snap.subscriptionCount,
         relayConnected: snap.relayConnected,
+        elapsedMsSinceConnectionAttempt: 0,
       });
     });
   } catch {
