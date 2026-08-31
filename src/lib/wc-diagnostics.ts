@@ -571,6 +571,7 @@ export function signClientWatch(provider: unknown) {
             ...frozenAttemptFields(),
             currentSessionTopicPrefix: frozenSessionTopicPrefix,
             elapsedMsSinceConnectionAttempt: elapsedSinceAttempt(),
+            ...publishObservationSummary(),
           });
           return;
         }
