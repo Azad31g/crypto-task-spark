@@ -42,7 +42,6 @@ export function isTelegram(): boolean {
   const hasWebApp = Boolean(window.Telegram?.WebApp);
   const hasInitData = Boolean(window.Telegram?.WebApp?.initData);
   const hasUser = Boolean(window.Telegram?.WebApp?.initDataUnsafe?.user);
-  console.log("[telegram] isTelegram check:", { hasWebApp, hasInitData, hasUser });
   return hasWebApp && (hasInitData || hasUser);
 }
 
