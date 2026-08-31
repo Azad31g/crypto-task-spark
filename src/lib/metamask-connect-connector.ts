@@ -151,9 +151,17 @@ export function metaMaskConnect() {
       }) {
         const client = await getInstance();
         try {
-          const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
-          const result = await client.connect({ chainIds: requestedChainIds });
-          const accounts = result.accounts.map((account) => getAddress(account));
+          // Official behavior: on wagmi reconnect (reconnectOnMount), first
+          // restore the existing MetaMask Connect session/accounts; only open
+          // a fresh connection request when nothing was restored.
+          let accounts: readonly Address[] = [];
+          if (parameters?.isReconnecting)
+            accounts = await this.getAccounts().catch(() => []);
+          if (accounts.length === 0) {
+            const requestedChainIds = config.chains.map((chain) => numberToHex(chain.id) as Hex);
+            const result = await client.connect({ chainIds: requestedChainIds });
+            accounts = result.accounts.map((account) => getAddress(account));
+          }
 
           let currentChainId = await this.getChainId();
           const desiredChainId = parameters?.chainId;
