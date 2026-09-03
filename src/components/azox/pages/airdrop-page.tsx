@@ -677,15 +677,21 @@ export function AirdropPage() {
                 background: hasEnoughBalance && !busy ? ORANGE : "#555555",
               }}
             >
-              {isConfirming
-                ? "⏳ Confirming on chain…"
-                : isTxPending
-                  ? "⏳ Confirm in your wallet…"
-                  : !hasEnoughBalance
-                    ? "Insufficient Balance"
-                    : flowError || txError
-                      ? `Retry Registration — ${FEE_LABEL}`
-                      : `Register Now — ${FEE_LABEL}`}
+              {phase === "CHECKING_ELIGIBILITY"
+                ? "⏳ Checking eligibility…"
+                : phase === "WAITING_CONFIRMATION" || isConfirming
+                  ? "⏳ Confirming on chain…"
+                  : phase === "VERIFYING_ON_CHAIN"
+                    ? "⏳ Verifying on chain…"
+                    : phase === "SYNCING_BACKEND"
+                      ? "⏳ Saving to your profile…"
+                      : phase === "REQUESTING_TRANSACTION" || isTxPending
+                        ? "⏳ Confirm in your wallet…"
+                        : !hasEnoughBalance
+                          ? "Insufficient Balance"
+                          : flowError || txError
+                            ? `Retry Registration — ${FEE_LABEL}`
+                            : `Register Now — ${FEE_LABEL}`}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
               You confirm the transaction in your wallet • {FEE_LABEL} + gas
