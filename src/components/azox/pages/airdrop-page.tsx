@@ -221,6 +221,11 @@ export function AirdropPage() {
   } = useSendTransaction();
 
   const [flowError, setFlowError] = useState<string | null>(null);
+  const [activePhase, setActivePhase] = useState<ActivePhase | null>(null);
+
+  // Registration is MANUAL. No effect ever starts a transaction; this ref only
+  // prevents a double-submit from rapid taps on the Register button.
+  const registrationInFlightRef = useRef(false);
 
   const isWrongNetwork = isConnected && chainId !== robinhoodTestnet.id;
   const hasEnoughBalance = Boolean(balance && balance.value >= REQUIRED_BALANCE);
@@ -230,7 +235,50 @@ export function AirdropPage() {
   const isRegistered = address
     ? isEligible === true
     : dbRegistration !== null;
-  const busy = isTxPending || isConfirming;
+  const busy = isTxPending || isConfirming || activePhase !== null;
+
+  const phase = deriveAirdropPhase({
+    isConnected,
+    chainId,
+    expectedChainId: robinhoodTestnet.id,
+    isEligibleOnChain: address ? (isEligible as boolean | undefined) : undefined,
+    activePhase,
+  });
+
+  /**
+   * Supabase mirror write. Runs only AFTER an on-chain-verified registration.
+   * Its failure is reported separately (BACKEND_SYNC_ERROR) and never
+   * invalidates the payment or re-requests one.
+   */
+  const syncBackend = async (walletAddress: `0x${string}`, hash: `0x${string}`) => {
+    const telegramId = currentTelegramId();
+    if (!telegramId) {
+      console.info("[airdrop] SUPABASE_SAVE_SKIPPED", { reason: "no telegram id" });
+      return;
+    }
+    setActivePhase("SYNCING_BACKEND");
+    let saved: WalletRegistration | null = null;
+    try {
+      saved = await saveWalletRegistration({
+        telegramId,
+        walletAddress,
+        chainId: robinhoodTestnet.id,
+        txHash: hash,
+      });
+    } catch (syncError) {
+      console.error("[airdrop] BACKEND_SYNC_ERROR", syncError);
+    }
+    console.info("[airdrop] SUPABASE_SAVE_RESULT", {
+      telegramId,
+      saved: Boolean(saved),
+    });
+    if (saved) {
+      setDbRegistration(saved);
+      setSyncFailed(false);
+    } else {
+      setSyncFailed(true);
+    }
+  };
 
   // MANUAL ONLY: never called from an effect. Connecting a wallet must never
   // send a transaction — the user presses "Register Now" explicitly.
@@ -244,7 +292,6 @@ export function AirdropPage() {
       address,
       chainId,
     });
-
 
     try {
       if (!isConnected || !address) {
@@ -264,14 +311,14 @@ export function AirdropPage() {
             );
           }
         } catch (error) {
-          setFlowError(`WRONG_NETWORK: ${getErrorMessage(error)}`);
+          setFlowError(fail("WRONG_NETWORK", error));
           return;
         }
       }
 
       const balanceResult = await refetchBalance();
       if (balanceResult.error) {
-        setFlowError(`RPC_ERROR: ${getErrorMessage(balanceResult.error)}`);
+        setFlowError(fail("RPC_ERROR", balanceResult.error));
         return;
       }
       if (!balanceResult.data || balanceResult.data.value < REQUIRED_BALANCE) {
@@ -284,23 +331,23 @@ export function AirdropPage() {
         return;
       }
 
+      setActivePhase("CHECKING_ELIGIBILITY");
       console.info("[airdrop] CHECKING_ELIGIBILITY");
       let eligibility;
       try {
         eligibility = await refetchEligible();
       } catch (error) {
-        setFlowError(`ELIGIBILITY_READ_ERROR: ${getErrorMessage(error)}`);
+        setFlowError(fail("ELIGIBILITY_READ_ERROR", error));
         return;
       }
       if (eligibility.error) {
-        setFlowError(
-          `ELIGIBILITY_READ_ERROR: ${getErrorMessage(eligibility.error)}`,
-        );
+        setFlowError(fail("ELIGIBILITY_READ_ERROR", eligibility.error));
         return;
       }
       console.info("[airdrop] ELIGIBILITY_RESULT", {
         eligible: eligibility.data,
       });
+      // Already registered on-chain: never pay twice.
       if (eligibility.data === true) return;
       if (eligibility.data !== false) {
         setFlowError(
@@ -309,6 +356,22 @@ export function AirdropPage() {
         return;
       }
 
+      // Simulate first so a revert is caught before the wallet is opened.
+      try {
+        await simulateContract(wagmiConfig, {
+          address: AZOX_AIRDROP_ADDRESS,
+          abi: AZOX_AIRDROP_ABI,
+          functionName: "register",
+          value: REGISTRATION_FEE,
+          chainId: robinhoodTestnet.id,
+          account: address,
+        });
+      } catch (error) {
+        setFlowError(fail(classifyAirdropError(error), error));
+        return;
+      }
+
+      setActivePhase("REQUESTING_TRANSACTION");
       console.info("[airdrop] REQUESTING_TRANSACTION", {
         from: address,
         to: AZOX_AIRDROP_ADDRESS,
@@ -316,16 +379,15 @@ export function AirdropPage() {
         valueWei: REGISTRATION_FEE.toString(),
         valueEth: formatEther(REGISTRATION_FEE),
       });
-      console.info("[airdrop] WALLET_CONFIRMATION_REQUESTED");
       const hash = await sendTransactionAsync({
         to: AZOX_AIRDROP_ADDRESS,
         data: registerData,
         value: REGISTRATION_FEE,
         chainId: robinhoodTestnet.id,
       });
-      
+
       console.info("[airdrop] TRANSACTION_SUBMITTED", { hash });
-      console.info("[airdrop] WAITING_FOR_RECEIPT");
+      setActivePhase("WAITING_CONFIRMATION");
       setIsConfirming(true);
       const receipt = await waitForTransactionReceipt(wagmiConfig, {
         hash,
@@ -342,11 +404,10 @@ export function AirdropPage() {
         return;
       }
 
+      setActivePhase("VERIFYING_ON_CHAIN");
       const verification = await refetchEligible();
       if (verification.error) {
-        setFlowError(
-          `ELIGIBILITY_READ_ERROR: ${getErrorMessage(verification.error)}`,
-        );
+        setFlowError(fail("ELIGIBILITY_READ_ERROR", verification.error));
         return;
       }
       if (verification.data !== true) {
@@ -358,52 +419,32 @@ export function AirdropPage() {
       console.info("[airdrop] REGISTRATION_VERIFIED");
       setLastTxHash(hash);
       setSyncFailed(false);
-      const telegramId = currentTelegramId();
-      if (telegramId) {
-        // Backend is a data layer only: a failure here NEVER invalidates the
-        // confirmed on-chain registration and never re-requests payment.
-        let saved: WalletRegistration | null = null;
-        try {
-          saved = await saveWalletRegistration({
-            telegramId,
-            walletAddress: address,
-            chainId: robinhoodTestnet.id,
-            txHash: hash,
-          });
-        } catch (syncError) {
-          console.error("[airdrop] SUPABASE_SAVE_ERROR", syncError);
-        }
-        console.info("[airdrop] SUPABASE_SAVE_RESULT", {
-          telegramId,
-          saved: Boolean(saved),
-        });
-        if (saved) setDbRegistration(saved);
-        else setSyncFailed(true);
-      } else {
-        console.info("[airdrop] SUPABASE_SAVE_SKIPPED", {
-          reason: "no telegram id",
-        });
-      }
+
+      await syncBackend(address, hash);
+
       writeStorage(KEYS.registered, true);
       writeStorage(KEYS.address, address);
       writeStorage(KEYS.date, new Date().toISOString());
       setConfetti(true);
       setTimeout(() => setConfetti(false), 2200);
     } catch (error) {
-      const type = classifyTransactionError(error);
-      setFlowError(`${type}: ${getErrorMessage(error)}`);
+      const type = classifyAirdropError(error);
+      setFlowError(fail(type, error));
       console.error(`[airdrop] ${type}`, error);
     } finally {
       setIsConfirming(false);
-
+      setActivePhase(null);
       registrationInFlightRef.current = false;
     }
   };
 
-
-  // Registration is MANUAL. No effect ever starts a transaction; this ref only
-  // prevents a double-submit from rapid taps on the Register button.
-  const registrationInFlightRef = useRef(false);
+  // Retries ONLY the data-layer mirror for an already-paid, on-chain-verified
+  // registration. It never sends a transaction.
+  const handleRetrySync = async () => {
+    if (!address || !lastTxHash) return;
+    await syncBackend(address, lastTxHash);
+    setActivePhase(null);
+  };
 
 
 
