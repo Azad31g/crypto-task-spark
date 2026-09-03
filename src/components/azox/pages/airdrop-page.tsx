@@ -26,6 +26,13 @@ import {
   REGISTRATION_FEE,
 } from "@/lib/contracts";
 import { robinhoodTestnet } from "@/lib/wagmi-config";
+import {
+  classifyAirdropError,
+  deriveAirdropPhase,
+  errorMessageOf as getErrorMessage,
+  type ActivePhase,
+  type AirdropErrorType,
+} from "@/lib/airdrop-flow";
 import { WalletConnectPanel } from "@/components/azox/wallet-connect-panel";
 
 
