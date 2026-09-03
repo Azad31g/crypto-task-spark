@@ -11,7 +11,7 @@ import {
   useSendTransaction,
   useDisconnect,
 } from "wagmi";
-import { waitForTransactionReceipt } from "@wagmi/core";
+import { simulateContract, waitForTransactionReceipt } from "@wagmi/core";
 import { encodeFunctionData, formatEther } from "viem";
 import { writeStorage } from "@/lib/points";
 import {
@@ -20,15 +20,16 @@ import {
   saveWalletRegistration,
   type WalletRegistration,
 } from "@/lib/azox-backend";
-import {
-  AZOX_AIRDROP_ABI,
-  AZOX_AIRDROP_ADDRESS,
-  REGISTRATION_FEE,
-} from "@/lib/contracts";
+import { AZOX_AIRDROP_ABI, AZOX_AIRDROP_ADDRESS, REGISTRATION_FEE } from "@/lib/contracts";
 import { robinhoodTestnet } from "@/lib/wagmi-config";
+import {
+  classifyAirdropError,
+  deriveAirdropPhase,
+  errorMessageOf as getErrorMessage,
+  type ActivePhase,
+  type AirdropErrorType,
+} from "@/lib/airdrop-flow";
 import { WalletConnectPanel } from "@/components/azox/wallet-connect-panel";
-
-
 
 const KEYS = {
   address: "azox_wallet_address",
@@ -41,9 +42,7 @@ const WalletButton = lazy(() =>
 );
 
 function WalletButtonFallback() {
-  return (
-    <span className="text-xs text-muted-foreground">Loading wallet…</span>
-  );
+  return <span className="text-xs text-muted-foreground">Loading wallet…</span>;
 }
 
 function AppKitButton({ balance }: { balance?: "hide" }) {
@@ -55,10 +54,6 @@ function AppKitButton({ balance }: { balance?: "hide" }) {
     </ClientOnly>
   );
 }
-
-
-
-
 
 const ORANGE = "#FF7A18";
 const GREEN = "#a3e635";
@@ -72,44 +67,9 @@ const registerData = encodeFunctionData({
   args: [],
 });
 
-type RegistrationErrorType =
-  | "USER_REJECTED"
-  | "INSUFFICIENT_FUNDS"
-  | "WRONG_NETWORK"
-  | "RPC_ERROR"
-  | "TRANSACTION_ERROR"
-  | "ELIGIBILITY_READ_ERROR";
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function classifyTransactionError(error: unknown): RegistrationErrorType {
-  const message = getErrorMessage(error);
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String(error.code)
-      : "";
-
-  if (
-    code === "4001" ||
-    /user rejected|user denied|denied transaction|rejected the request/i.test(
-      message,
-    )
-  ) {
-    return "USER_REJECTED";
-  }
-  if (/insufficient funds|exceeds balance|funds for gas/i.test(message)) {
-    return "INSUFFICIENT_FUNDS";
-  }
-  if (/wrong network|chain mismatch|chain not configured|unsupported chain/i.test(message)) {
-    return "WRONG_NETWORK";
-  }
-  if (/rpc|transport|network request|failed to fetch|timeout/i.test(message)) {
-    return "RPC_ERROR";
-  }
-  return "TRANSACTION_ERROR";
+/** Prefixes a typed error code onto a human message for the UI banner. */
+function fail(type: AirdropErrorType, error: unknown): string {
+  return `${type}: ${getErrorMessage(error)}`;
 }
 
 function shorten(addr: string) {
@@ -165,8 +125,7 @@ function Confetti() {
 export function AirdropPage() {
   const { address, isConnected, chainId } = useAccount();
   const { disconnect } = useDisconnect();
-  const { switchChain, switchChainAsync, isPending: isSwitching } =
-    useSwitchChain();
+  const { switchChain, switchChainAsync, isPending: isSwitching } = useSwitchChain();
   const wagmiConfig = useConfig();
 
   const [confetti, setConfetti] = useState(false);
@@ -177,8 +136,7 @@ export function AirdropPage() {
   const [syncFailed, setSyncFailed] = useState(false);
   const [lastTxHash, setLastTxHash] = useState<`0x${string}` | null>(null);
 
-  const [dbRegistration, setDbRegistration] =
-    useState<WalletRegistration | null>(null);
+  const [dbRegistration, setDbRegistration] = useState<WalletRegistration | null>(null);
 
   // Background read only — it never gates connecting or paying.
 
@@ -193,7 +151,6 @@ export function AirdropPage() {
       active = false;
     };
   }, []);
-
 
   useEffect(() => {
     const handler = () => {
@@ -249,16 +206,62 @@ export function AirdropPage() {
   } = useSendTransaction();
 
   const [flowError, setFlowError] = useState<string | null>(null);
+  const [activePhase, setActivePhase] = useState<ActivePhase | null>(null);
+
+  // Registration is MANUAL. No effect ever starts a transaction; this ref only
+  // prevents a double-submit from rapid taps on the Register button.
+  const registrationInFlightRef = useRef(false);
 
   const isWrongNetwork = isConnected && chainId !== robinhoodTestnet.id;
   const hasEnoughBalance = Boolean(balance && balance.value >= REQUIRED_BALANCE);
   // ON-CHAIN STATE IS AUTHORITATIVE. A Supabase wallet_registrations row is
   // only a display hint while no wallet is connected — it must never suppress
   // connecting or paying, and it must never claim eligibility the chain denies.
-  const isRegistered = address
-    ? isEligible === true
-    : dbRegistration !== null;
-  const busy = isTxPending || isConfirming;
+  const isRegistered = address ? isEligible === true : dbRegistration !== null;
+  const busy = isTxPending || isConfirming || activePhase !== null;
+
+  const phase = deriveAirdropPhase({
+    isConnected,
+    chainId,
+    expectedChainId: robinhoodTestnet.id,
+    isEligibleOnChain: address ? (isEligible as boolean | undefined) : undefined,
+    activePhase,
+  });
+
+  /**
+   * Supabase mirror write. Runs only AFTER an on-chain-verified registration.
+   * Its failure is reported separately (BACKEND_SYNC_ERROR) and never
+   * invalidates the payment or re-requests one.
+   */
+  const syncBackend = async (walletAddress: `0x${string}`, hash: `0x${string}`) => {
+    const telegramId = currentTelegramId();
+    if (!telegramId) {
+      console.info("[airdrop] SUPABASE_SAVE_SKIPPED", { reason: "no telegram id" });
+      return;
+    }
+    setActivePhase("SYNCING_BACKEND");
+    let saved: WalletRegistration | null = null;
+    try {
+      saved = await saveWalletRegistration({
+        telegramId,
+        walletAddress,
+        chainId: robinhoodTestnet.id,
+        txHash: hash,
+      });
+    } catch (syncError) {
+      console.error("[airdrop] BACKEND_SYNC_ERROR", syncError);
+    }
+    console.info("[airdrop] SUPABASE_SAVE_RESULT", {
+      telegramId,
+      saved: Boolean(saved),
+    });
+    if (saved) {
+      setDbRegistration(saved);
+      setSyncFailed(false);
+    } else {
+      setSyncFailed(true);
+    }
+  };
 
   // MANUAL ONLY: never called from an effect. Connecting a wallet must never
   // send a transaction — the user presses "Register Now" explicitly.
@@ -272,7 +275,6 @@ export function AirdropPage() {
       address,
       chainId,
     });
-
 
     try {
       if (!isConnected || !address) {
@@ -292,51 +294,63 @@ export function AirdropPage() {
             );
           }
         } catch (error) {
-          setFlowError(`WRONG_NETWORK: ${getErrorMessage(error)}`);
+          setFlowError(fail("WRONG_NETWORK", error));
           return;
         }
       }
 
       const balanceResult = await refetchBalance();
       if (balanceResult.error) {
-        setFlowError(`RPC_ERROR: ${getErrorMessage(balanceResult.error)}`);
+        setFlowError(fail("RPC_ERROR", balanceResult.error));
         return;
       }
       if (!balanceResult.data || balanceResult.data.value < REQUIRED_BALANCE) {
-        const available = balanceResult.data
-          ? formatEther(balanceResult.data.value)
-          : "0";
+        const available = balanceResult.data ? formatEther(balanceResult.data.value) : "0";
         setFlowError(
           `INSUFFICIENT_FUNDS: ${available} ETH available; ${FEE_LABEL} plus approximately ${formatEther(GAS_RESERVE)} ETH gas reserve required.`,
         );
         return;
       }
 
+      setActivePhase("CHECKING_ELIGIBILITY");
       console.info("[airdrop] CHECKING_ELIGIBILITY");
       let eligibility;
       try {
         eligibility = await refetchEligible();
       } catch (error) {
-        setFlowError(`ELIGIBILITY_READ_ERROR: ${getErrorMessage(error)}`);
+        setFlowError(fail("ELIGIBILITY_READ_ERROR", error));
         return;
       }
       if (eligibility.error) {
-        setFlowError(
-          `ELIGIBILITY_READ_ERROR: ${getErrorMessage(eligibility.error)}`,
-        );
+        setFlowError(fail("ELIGIBILITY_READ_ERROR", eligibility.error));
         return;
       }
       console.info("[airdrop] ELIGIBILITY_RESULT", {
         eligible: eligibility.data,
       });
+      // Already registered on-chain: never pay twice.
       if (eligibility.data === true) return;
       if (eligibility.data !== false) {
-        setFlowError(
-          "ELIGIBILITY_READ_ERROR: The eligibility check returned no result.",
-        );
+        setFlowError("ELIGIBILITY_READ_ERROR: The eligibility check returned no result.");
         return;
       }
 
+      // Simulate first so a revert is caught before the wallet is opened.
+      try {
+        await simulateContract(wagmiConfig, {
+          address: AZOX_AIRDROP_ADDRESS,
+          abi: AZOX_AIRDROP_ABI,
+          functionName: "register",
+          value: REGISTRATION_FEE,
+          chainId: robinhoodTestnet.id,
+          account: address,
+        });
+      } catch (error) {
+        setFlowError(fail(classifyAirdropError(error), error));
+        return;
+      }
+
+      setActivePhase("REQUESTING_TRANSACTION");
       console.info("[airdrop] REQUESTING_TRANSACTION", {
         from: address,
         to: AZOX_AIRDROP_ADDRESS,
@@ -344,16 +358,15 @@ export function AirdropPage() {
         valueWei: REGISTRATION_FEE.toString(),
         valueEth: formatEther(REGISTRATION_FEE),
       });
-      console.info("[airdrop] WALLET_CONFIRMATION_REQUESTED");
       const hash = await sendTransactionAsync({
         to: AZOX_AIRDROP_ADDRESS,
         data: registerData,
         value: REGISTRATION_FEE,
         chainId: robinhoodTestnet.id,
       });
-      
+
       console.info("[airdrop] TRANSACTION_SUBMITTED", { hash });
-      console.info("[airdrop] WAITING_FOR_RECEIPT");
+      setActivePhase("WAITING_CONFIRMATION");
       setIsConfirming(true);
       const receipt = await waitForTransactionReceipt(wagmiConfig, {
         hash,
@@ -364,17 +377,14 @@ export function AirdropPage() {
         status: receipt.status,
       });
       if (receipt.status !== "success") {
-        setFlowError(
-          `TRANSACTION_ERROR: Transaction reverted (${receipt.transactionHash})`,
-        );
+        setFlowError(`TRANSACTION_ERROR: Transaction reverted (${receipt.transactionHash})`);
         return;
       }
 
+      setActivePhase("VERIFYING_ON_CHAIN");
       const verification = await refetchEligible();
       if (verification.error) {
-        setFlowError(
-          `ELIGIBILITY_READ_ERROR: ${getErrorMessage(verification.error)}`,
-        );
+        setFlowError(fail("ELIGIBILITY_READ_ERROR", verification.error));
         return;
       }
       if (verification.data !== true) {
@@ -386,54 +396,32 @@ export function AirdropPage() {
       console.info("[airdrop] REGISTRATION_VERIFIED");
       setLastTxHash(hash);
       setSyncFailed(false);
-      const telegramId = currentTelegramId();
-      if (telegramId) {
-        // Backend is a data layer only: a failure here NEVER invalidates the
-        // confirmed on-chain registration and never re-requests payment.
-        let saved: WalletRegistration | null = null;
-        try {
-          saved = await saveWalletRegistration({
-            telegramId,
-            walletAddress: address,
-            chainId: robinhoodTestnet.id,
-            txHash: hash,
-          });
-        } catch (syncError) {
-          console.error("[airdrop] SUPABASE_SAVE_ERROR", syncError);
-        }
-        console.info("[airdrop] SUPABASE_SAVE_RESULT", {
-          telegramId,
-          saved: Boolean(saved),
-        });
-        if (saved) setDbRegistration(saved);
-        else setSyncFailed(true);
-      } else {
-        console.info("[airdrop] SUPABASE_SAVE_SKIPPED", {
-          reason: "no telegram id",
-        });
-      }
+
+      await syncBackend(address, hash);
+
       writeStorage(KEYS.registered, true);
       writeStorage(KEYS.address, address);
       writeStorage(KEYS.date, new Date().toISOString());
       setConfetti(true);
       setTimeout(() => setConfetti(false), 2200);
     } catch (error) {
-      const type = classifyTransactionError(error);
-      setFlowError(`${type}: ${getErrorMessage(error)}`);
+      const type = classifyAirdropError(error);
+      setFlowError(fail(type, error));
       console.error(`[airdrop] ${type}`, error);
     } finally {
       setIsConfirming(false);
-
+      setActivePhase(null);
       registrationInFlightRef.current = false;
     }
   };
 
-
-  // Registration is MANUAL. No effect ever starts a transaction; this ref only
-  // prevents a double-submit from rapid taps on the Register button.
-  const registrationInFlightRef = useRef(false);
-
-
+  // Retries ONLY the data-layer mirror for an already-paid, on-chain-verified
+  // registration. It never sends a transaction.
+  const handleRetrySync = async () => {
+    if (!address || !lastTxHash) return;
+    await syncBackend(address, lastTxHash);
+    setActivePhase(null);
+  };
 
   return (
     <div className="flex flex-col gap-5 pb-8">
@@ -458,8 +446,7 @@ export function AirdropPage() {
         style={{
           background: "#0d0d0d",
           border: `1px solid ${ORANGE}`,
-          boxShadow:
-            "0 0 0 1px rgba(255,122,24,0.25), 0 10px 32px rgba(255,122,24,0.2)",
+          boxShadow: "0 0 0 1px rgba(255,122,24,0.25), 0 10px 32px rgba(255,122,24,0.2)",
         }}
       >
         <div style={{ fontSize: 64, lineHeight: 1 }}>🪂</div>
@@ -467,18 +454,15 @@ export function AirdropPage() {
           AZOX Airdrop Registration
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Register once to qualify for AZOX token distribution on Robinhood Chain
-          Testnet (Chain ID {robinhoodTestnet.id})
+          Register once to qualify for AZOX token distribution on Robinhood Chain Testnet (Chain ID{" "}
+          {robinhoodTestnet.id})
         </p>
         {totalRegistered !== undefined && (
           <p className="mt-2 text-xs font-semibold" style={{ color: GREEN }}>
             {totalRegistered.toString()} registered so far
           </p>
         )}
-        <div
-          className="mx-auto mt-4 h-0.5 w-20 rounded-full"
-          style={{ background: ORANGE }}
-        />
+        <div className="mx-auto mt-4 h-0.5 w-20 rounded-full" style={{ background: ORANGE }} />
       </section>
 
       {/* How it works */}
@@ -581,7 +565,6 @@ export function AirdropPage() {
           />
         )}
 
-
         {isConnected && isWrongNetwork && !isRegistered && (
           <div className="space-y-3">
             <h2 className="text-sm font-bold" style={{ color: ORANGE }}>
@@ -606,11 +589,7 @@ export function AirdropPage() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2
-                    className="size-4"
-                    style={{ color: GREEN }}
-                    aria-hidden="true"
-                  />
+                  <CheckCircle2 className="size-4" style={{ color: GREEN }} aria-hidden="true" />
                   <h2 className="text-sm font-bold">Wallet Connected</h2>
                 </div>
                 <code className="mt-1 block text-xs text-foreground">
@@ -623,9 +602,7 @@ export function AirdropPage() {
             <p className="text-xs text-muted-foreground">
               Balance:{" "}
               <span className="font-semibold text-foreground">
-                {balance
-                  ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ETH`
-                  : "Loading…"}
+                {balance ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ETH` : "Loading…"}
               </span>
             </p>
             {hasEnoughBalance ? (
@@ -664,31 +641,45 @@ export function AirdropPage() {
                 background: hasEnoughBalance && !busy ? ORANGE : "#555555",
               }}
             >
-              {isConfirming
-                ? "⏳ Confirming on chain…"
-                : isTxPending
-                  ? "⏳ Confirm in your wallet…"
-                  : !hasEnoughBalance
-                    ? "Insufficient Balance"
-                    : flowError || txError
-                      ? `Retry Registration — ${FEE_LABEL}`
-                      : `Register Now — ${FEE_LABEL}`}
+              {phase === "CHECKING_ELIGIBILITY"
+                ? "⏳ Checking eligibility…"
+                : phase === "WAITING_CONFIRMATION" || isConfirming
+                  ? "⏳ Confirming on chain…"
+                  : phase === "VERIFYING_ON_CHAIN"
+                    ? "⏳ Verifying on chain…"
+                    : phase === "SYNCING_BACKEND"
+                      ? "⏳ Saving to your profile…"
+                      : phase === "REQUESTING_TRANSACTION" || isTxPending
+                        ? "⏳ Confirm in your wallet…"
+                        : !hasEnoughBalance
+                          ? "Insufficient Balance"
+                          : flowError || txError
+                            ? `Retry Registration — ${FEE_LABEL}`
+                            : `Register Now — ${FEE_LABEL}`}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
               You confirm the transaction in your wallet • {FEE_LABEL} + gas
             </p>
 
             {syncFailed && (
-              <p className="text-center text-[11px]" style={{ color: "#f59e0b" }}>
-                ✅ On-chain registration confirmed
-                {lastTxHash ? ` (${lastTxHash.slice(0, 10)}…)` : ""} — saving it
-                to your profile failed. No new payment is needed; reopen this
-                page to retry the sync.
-              </p>
+              <div className="space-y-1 text-center">
+                <p className="text-[11px]" style={{ color: "#f59e0b" }}>
+                  BACKEND_SYNC_ERROR — ✅ On-chain registration confirmed
+                  {lastTxHash ? ` (${lastTxHash.slice(0, 10)}…)` : ""}. Saving it to your profile
+                  failed. No new payment is needed.
+                </p>
+                <button
+                  onClick={() => {
+                    void handleRetrySync();
+                  }}
+                  disabled={busy || !lastTxHash}
+                  className="text-[11px] underline disabled:opacity-50"
+                  style={{ color: ORANGE }}
+                >
+                  Retry profile sync
+                </button>
+              </div>
             )}
-
-
-
 
             {(flowError || txError) && (
               <div className="space-y-1 text-center">
@@ -718,10 +709,7 @@ export function AirdropPage() {
           {FAQ.map((item, i) => {
             const open = openFaq === i;
             return (
-              <li
-                key={item.q}
-                className="rounded-xl border border-border bg-secondary/40"
-              >
+              <li key={item.q} className="rounded-xl border border-border bg-secondary/40">
                 <button
                   onClick={() => setOpenFaq(open ? null : i)}
                   aria-expanded={open}
@@ -733,11 +721,7 @@ export function AirdropPage() {
                     aria-hidden="true"
                   />
                 </button>
-                {open && (
-                  <p className="px-3 pb-3 text-xs text-muted-foreground">
-                    {item.a}
-                  </p>
-                )}
+                {open && <p className="px-3 pb-3 text-xs text-muted-foreground">{item.a}</p>}
               </li>
             );
           })}
