@@ -11,7 +11,7 @@ import {
   useSendTransaction,
   useDisconnect,
 } from "wagmi";
-import { waitForTransactionReceipt } from "@wagmi/core";
+import { simulateContract, waitForTransactionReceipt } from "@wagmi/core";
 import { encodeFunctionData, formatEther } from "viem";
 import { writeStorage } from "@/lib/points";
 import {
