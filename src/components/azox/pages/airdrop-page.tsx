@@ -698,12 +698,23 @@ export function AirdropPage() {
             </p>
 
             {syncFailed && (
-              <p className="text-center text-[11px]" style={{ color: "#f59e0b" }}>
-                ✅ On-chain registration confirmed
-                {lastTxHash ? ` (${lastTxHash.slice(0, 10)}…)` : ""} — saving it
-                to your profile failed. No new payment is needed; reopen this
-                page to retry the sync.
-              </p>
+              <div className="space-y-1 text-center">
+                <p className="text-[11px]" style={{ color: "#f59e0b" }}>
+                  BACKEND_SYNC_ERROR — ✅ On-chain registration confirmed
+                  {lastTxHash ? ` (${lastTxHash.slice(0, 10)}…)` : ""}. Saving it
+                  to your profile failed. No new payment is needed.
+                </p>
+                <button
+                  onClick={() => {
+                    void handleRetrySync();
+                  }}
+                  disabled={busy || !lastTxHash}
+                  className="text-[11px] underline disabled:opacity-50"
+                  style={{ color: ORANGE }}
+                >
+                  Retry profile sync
+                </button>
+              </div>
             )}
 
 
