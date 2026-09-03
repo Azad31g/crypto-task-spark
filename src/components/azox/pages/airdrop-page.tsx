@@ -79,44 +79,9 @@ const registerData = encodeFunctionData({
   args: [],
 });
 
-type RegistrationErrorType =
-  | "USER_REJECTED"
-  | "INSUFFICIENT_FUNDS"
-  | "WRONG_NETWORK"
-  | "RPC_ERROR"
-  | "TRANSACTION_ERROR"
-  | "ELIGIBILITY_READ_ERROR";
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function classifyTransactionError(error: unknown): RegistrationErrorType {
-  const message = getErrorMessage(error);
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String(error.code)
-      : "";
-
-  if (
-    code === "4001" ||
-    /user rejected|user denied|denied transaction|rejected the request/i.test(
-      message,
-    )
-  ) {
-    return "USER_REJECTED";
-  }
-  if (/insufficient funds|exceeds balance|funds for gas/i.test(message)) {
-    return "INSUFFICIENT_FUNDS";
-  }
-  if (/wrong network|chain mismatch|chain not configured|unsupported chain/i.test(message)) {
-    return "WRONG_NETWORK";
-  }
-  if (/rpc|transport|network request|failed to fetch|timeout/i.test(message)) {
-    return "RPC_ERROR";
-  }
-  return "TRANSACTION_ERROR";
+/** Prefixes a typed error code onto a human message for the UI banner. */
+function fail(type: AirdropErrorType, error: unknown): string {
+  return `${type}: ${getErrorMessage(error)}`;
 }
 
 function shorten(addr: string) {
