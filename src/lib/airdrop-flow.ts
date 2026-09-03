@@ -77,20 +77,14 @@ export function classifyAirdropError(error: unknown): AirdropErrorType {
 
   if (
     code === "4001" ||
-    /user rejected|user denied|denied transaction|rejected the request/i.test(
-      message,
-    )
+    /user rejected|user denied|denied transaction|rejected the request/i.test(message)
   ) {
     return "USER_REJECTED";
   }
   if (/insufficient funds|exceeds balance|funds for gas/i.test(message)) {
     return "INSUFFICIENT_FUNDS";
   }
-  if (
-    /wrong network|chain mismatch|chain not configured|unsupported chain/i.test(
-      message,
-    )
-  ) {
+  if (/wrong network|chain mismatch|chain not configured|unsupported chain/i.test(message)) {
     return "WRONG_NETWORK";
   }
   if (/rpc|transport|network request|failed to fetch|timeout/i.test(message)) {
