@@ -68,11 +68,13 @@ createAppKit({
     description: "AZOX Gaming Hub",
     url: APP_URL,
     icons: [`${APP_URL}/favicon.png`],
+    // `redirect` is honored at runtime by WalletConnect but missing from
+    // AppKit's Metadata type.
     redirect: {
       native: "",
       universal: TELEGRAM_APP_URL || APP_URL,
     },
-  },
+  } as never,
   features: { analytics: false },
 });
 
