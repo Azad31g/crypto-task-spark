@@ -507,11 +507,11 @@ export function AirdropPage() {
             <h2 className="text-base font-bold" style={{ color: GREEN }}>
               Airdrop Eligible!
             </h2>
-            {(dbRegistration?.wallet_address ?? address) && (
+            {(address ?? dbRegistration?.wallet_address) && (
               <p className="text-xs text-muted-foreground">
                 Wallet:{" "}
                 <code className="text-foreground">
-                  {shorten(dbRegistration?.wallet_address ?? address!)}
+                  {shorten((address ?? dbRegistration?.wallet_address)!)}
                 </code>
               </p>
             )}
