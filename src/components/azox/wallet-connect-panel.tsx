@@ -1,24 +1,7 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { ClientOnly } from "@tanstack/react-router";
-import { useConnect } from "wagmi";
-import {
-  METAMASK_CONNECTOR_ID,
-  WALLET_MODE_LABELS,
-  detectWalletEnvironment,
-  metaMaskConnectAvailable,
-  type WalletEnvironment,
-} from "@/lib/azox-wallet-layer";
-import { robinhoodTestnet } from "@/lib/wagmi-config";
 
 const ORANGE = "#FF7A18";
-
-/** EIP-1193 user rejection, as emitted by MetaMask Connect and wagmi. */
-function isUserRejection(error: unknown): boolean {
-  const code = (error as { code?: number } | undefined)?.code;
-  if (code === 4001) return true;
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return /user rejected|user denied|rejected the request/i.test(message);
-}
 
 const WalletButton = lazy(() =>
   import("@/lib/appkit-runtime").then((m) => ({ default: m.WalletButton })),
@@ -28,65 +11,20 @@ function Loading() {
   return <span className="text-xs text-muted-foreground">Loading wallet…</span>;
 }
 
-function AppKitEntry({ balance }: { balance?: "hide" }) {
-  return (
-    <ClientOnly fallback={<Loading />}>
-      <Suspense fallback={<Loading />}>
-        <WalletButton {...(balance ? { balance } : {})} />
-      </Suspense>
-    </ClientOnly>
-  );
-}
-
 /**
- * Wallet connection entry point. Transport selection lives in the wallet layer;
- * this component only renders the corresponding UI.
- * - web / Telegram non-Android: unchanged AppKit modal.
- * - Telegram Android: explicit "Connect with MetaMask" (official MetaMask
- *   Connect wagmi connector) plus "Other Wallets" (AppKit / WalletConnect).
- * No transaction is ever sent here — registration stays manual.
+ * Single wallet connection entry point: the AppKit button. Every EVM wallet
+ * (MetaMask, Trust, Phantom, Coinbase…) connects through the same
+ * AppKit/WalletConnect flow — there is no wallet-specific branch.
  */
 export function WalletConnectPanel({ footer }: { footer?: ReactNode }) {
-  const [env, setEnv] = useState<WalletEnvironment>("web");
-  const { connectAsync, connectors } = useConnect();
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setEnv(detectWalletEnvironment());
-  }, []);
-
-  const labels = WALLET_MODE_LABELS[env];
-  const isTelegramAndroid = env === "telegram-android";
-
-  const handleMetaMask = async () => {
-    const connector = metaMaskConnectAvailable(env)
-      ? connectors.find((c) => c.id === METAMASK_CONNECTOR_ID)
-      : undefined;
-    if (!connector) {
-      setError("MetaMask Connect is not available in this environment.");
-      return;
-    }
-    setError(null);
-    setConnecting(true);
-    try {
-      await connectAsync({ connector, chainId: robinhoodTestnet.id });
-    } catch (err) {
-      // A user rejection (4001) is a deliberate choice, not a failure: no
-      // error banner and no fallback prompt.
-      if (isUserRejection(err)) return;
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setConnecting(false);
-    }
-  };
-
   return (
     <div className="space-y-3">
       <h2 className="text-base font-bold" style={{ color: ORANGE }}>
         Connect Your Wallet
       </h2>
-      <p className="text-xs text-muted-foreground">{labels.hint}</p>
+      <p className="text-xs text-muted-foreground">
+        Supports MetaMask, Trust Wallet, Phantom, Coinbase &amp; more
+      </p>
       <span
         className="inline-block rounded-full border px-2.5 py-1 text-[11px] font-semibold"
         style={{ color: ORANGE, borderColor: ORANGE }}
@@ -94,36 +32,13 @@ export function WalletConnectPanel({ footer }: { footer?: ReactNode }) {
         Robinhood Chain Testnet
       </span>
 
-      {isTelegramAndroid ? (
-        <div className="space-y-3">
-          <button
-            type="button"
-            onClick={handleMetaMask}
-            disabled={connecting}
-            className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-60"
-            style={{ background: ORANGE }}
-          >
-            {connecting ? "Connecting…" : `🦊 ${labels.primary}`}
-          </button>
-
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {labels.secondary} (Trust, Coinbase, Phantom…)
-            </span>
-            <AppKitEntry />
-          </div>
-
-          {error && (
-            <div className="rounded-xl border border-border p-3">
-              <p className="text-[11px] text-destructive">{error}</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex justify-center">
-          <AppKitEntry />
-        </div>
-      )}
+      <div className="flex justify-center">
+        <ClientOnly fallback={<Loading />}>
+          <Suspense fallback={<Loading />}>
+            <WalletButton />
+          </Suspense>
+        </ClientOnly>
+      </div>
 
       {footer}
     </div>
