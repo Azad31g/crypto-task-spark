@@ -217,7 +217,10 @@ export function AirdropPage() {
   // ON-CHAIN STATE IS AUTHORITATIVE. A Supabase wallet_registrations row is
   // only a display hint while no wallet is connected — it must never suppress
   // connecting or paying, and it must never claim eligibility the chain denies.
-  const isRegistered = address ? isEligible === true : dbRegistration !== null;
+  // ON-CHAIN ONLY. A historical Supabase row must never decide what the
+  // connect/register UI shows: with no connected wallet the user always gets
+  // the connect entry point.
+  const isRegistered = Boolean(address) && isEligible === true;
   const busy = isTxPending || isConfirming || activePhase !== null;
 
   const phase = deriveAirdropPhase({
