@@ -89,18 +89,11 @@ const runtimeReady = (async () => {
   // requestedChains` is empty and isChainsStale() (same file, getRequestedChains
   // Ids/isChainsStale) makes isAuthorized() DISCONNECT the freshly approved
   // session on reconnect. Seed exactly the value the connector itself writes.
-  const restored = universalProvider.session?.namespaces?.["eip155"]?.accounts;
-  if (restored?.length) {
-    const chainIds = [
-      ...new Set(
-        restored
-          .map((account) => Number.parseInt(account.split(":")[1] ?? "", 10))
-          .filter((id) => Number.isFinite(id)),
-      ),
-    ];
-    if (chainIds.length) {
-      await storage.setItem("walletConnect.requestedChains", chainIds);
-    }
+  if (universalProvider.session) {
+    await storage.setItem(
+      "walletConnect.requestedChains",
+      networks.map((network) => Number(network.id)),
+    );
   }
 
   const wagmiAdapter = new WagmiAdapter({
@@ -165,11 +158,18 @@ const runtimeReady = (async () => {
     await reconnecting;
   };
 
-  universalProvider.on("connect", reconnectApprovedSession);
+  const scheduleApprovedSessionReconnect = () => {
+    void reconnectApprovedSession().catch(() => {
+      // A stale/expired session is handled by the connector and must not block
+      // the app from rendering or prevent a fresh manual connection.
+    });
+  };
+
+  universalProvider.on("connect", scheduleApprovedSessionReconnect);
 
   const reconnectOnForeground = () => {
     if (document.visibilityState === "visible") {
-      void reconnectApprovedSession();
+      scheduleApprovedSessionReconnect();
     }
   };
   document.addEventListener("visibilitychange", reconnectOnForeground);
