@@ -157,7 +157,6 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   );
 }
 
-
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
   use(runtimeReady);
   return <AppKitButton {...(balance ? { balance } : {})} />;
