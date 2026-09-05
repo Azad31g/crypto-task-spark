@@ -11,6 +11,7 @@
 // The Telegram bridge below only transports them; it never inspects, rewrites
 // or re-encodes a WalletConnect URI, and it knows nothing about any wallet.
 import { use, type ReactNode } from "react";
+import { getAccount } from "@wagmi/core";
 import { WagmiProvider } from "wagmi";
 import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -142,6 +143,39 @@ const runtimeReady = (async () => {
   // WagmiProvider with reconnectOnMount before that means wagmi reconnects
   // against a connector-less config and can never restore the session.
   await appKit.ready();
+
+  // AppKit 1.8.23 only reconnects connectors marked as previously connected
+  // in its own storage. Telegram can suspend/reload this page before the
+  // original connect() promise stores those markers, even though WalletConnect
+  // has already persisted the approved session. Its provider `connect` handler
+  // also deliberately skips reconnect for the active EVM namespace. Restore
+  // that valid session through WagmiAdapter's public reconnect API instead.
+  let reconnecting: Promise<void> | undefined;
+  const reconnectApprovedSession = async () => {
+    if (!universalProvider.session || getAccount(wagmiAdapter.wagmiConfig).isConnected) {
+      return;
+    }
+    if (!reconnecting) {
+      reconnecting = wagmiAdapter
+        .reconnect({ id: "walletConnect", type: "WALLET_CONNECT" })
+        .finally(() => {
+          reconnecting = undefined;
+        });
+    }
+    await reconnecting;
+  };
+
+  universalProvider.on("connect", reconnectApprovedSession);
+
+  const reconnectOnForeground = () => {
+    if (document.visibilityState === "visible") {
+      void reconnectApprovedSession();
+    }
+  };
+  document.addEventListener("visibilitychange", reconnectOnForeground);
+  window.addEventListener("pageshow", reconnectOnForeground);
+
+  await reconnectApprovedSession();
 
   return wagmiAdapter.wagmiConfig;
 })();
