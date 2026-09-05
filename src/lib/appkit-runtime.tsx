@@ -59,20 +59,14 @@ function patchTelegramWindowOpen() {
 
 patchTelegramWindowOpen();
 
-const wagmiAdapter = new WagmiAdapter({
-  networks,
-  projectId,
-  ssr: true,
-  storage: createStorage({ storage: cookieStorage }),
-});
+const storage = createStorage({ storage: cookieStorage });
 
 // AppKit 1.8.23 rebuilds the metadata object it hands to its internally created
 // UniversalProvider from name/description/url/icons only, dropping `redirect`
-// (see @reown/appkit/dist/esm/src/client/appkit-base-client.js
-// `initializeUniversalAdapter`). The Telegram return target therefore only
-// reaches WalletConnect when the provider is created here and passed in via the
-// supported `universalProvider` option. Exactly ONE provider instance exists and
-// AppKit shares it with the single WagmiAdapter.
+// (see @reown/appkit/dist/esm/src/client/appkit-base-client.js:1491-1503).
+// Passing `universalProvider` is a supported option on that same line, so the
+// instance created here is the one AppKit and the WagmiAdapter both use
+// (client.js:702-724 `setUniversalProvider`). Exactly ONE provider exists.
 const runtimeReady = (async () => {
   const universalProvider = await UniversalProvider.init({
     projectId,
@@ -88,7 +82,34 @@ const runtimeReady = (async () => {
     },
   });
 
-  createAppKit({
+  // Session restored from storage after Telegram reopened the Mini App: the
+  // interrupted connect() never reached the connector's setRequestedChainsIds
+  // (WalletConnectConnector.js onConnect / connect), so `walletConnect.
+  // requestedChains` is empty and isChainsStale() (same file, getRequestedChains
+  // Ids/isChainsStale) makes isAuthorized() DISCONNECT the freshly approved
+  // session on reconnect. Seed exactly the value the connector itself writes.
+  const restored = universalProvider.session?.namespaces?.["eip155"]?.accounts;
+  if (restored?.length) {
+    const chainIds = [
+      ...new Set(
+        restored
+          .map((account) => Number.parseInt(account.split(":")[1] ?? "", 10))
+          .filter((id) => Number.isFinite(id)),
+      ),
+    ];
+    if (chainIds.length) {
+      await storage.setItem("walletConnect.requestedChains", chainIds);
+    }
+  }
+
+  const wagmiAdapter = new WagmiAdapter({
+    networks,
+    projectId,
+    ssr: true,
+    storage,
+  });
+
+  const appKit = createAppKit({
     // Type-only mismatch under exactOptionalPropertyTypes (optional `namespace`).
     // @ts-expect-error -- see above
     adapters: [wagmiAdapter],
@@ -114,19 +135,28 @@ const runtimeReady = (async () => {
     features: { analytics: false },
   });
 
-  return true;
+  // createAppKit() returns synchronously while initialize() is still running;
+  // the wagmi `walletConnect` connector is only pushed into wagmiConfig inside
+  // adapter.setUniversalProvider(), reached from initChainAdapters() awaited by
+  // readyPromise (appkit-base-client.js:199, 999, 1123-1126). Mounting
+  // WagmiProvider with reconnectOnMount before that means wagmi reconnects
+  // against a connector-less config and can never restore the session.
+  await appKit.ready();
+
+  return wagmiAdapter.wagmiConfig;
 })();
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
-  // Suspends until the single UniversalProvider + AppKit instance exist, so no
-  // second wagmi config can ever mount underneath connected state.
-  use(runtimeReady);
+  // Suspends until the single UniversalProvider + AppKit instance exist AND
+  // AppKit finished registering the walletConnect connector.
+  const config = use(runtimeReady);
   return (
-    <WagmiProvider config={wagmiAdapter.wagmiConfig} reconnectOnMount>
+    <WagmiProvider config={config} reconnectOnMount>
       {children}
     </WagmiProvider>
   );
 }
+
 
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
   use(runtimeReady);
