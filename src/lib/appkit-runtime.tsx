@@ -11,6 +11,7 @@ import { WagmiProvider } from "wagmi";
 import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
+import { startWalletDebug, WalletDebugPanel } from "./wallet-debug";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 
 // --- Telegram Mini App support -------------------------------------------
@@ -55,7 +56,7 @@ const wagmiAdapter = new WagmiAdapter({
   storage: createStorage({ storage: cookieStorage }),
 });
 
-createAppKit({
+const appKit = createAppKit({
   // Type-only mismatch under exactOptionalPropertyTypes (optional `namespace`).
   // @ts-expect-error -- see above
   adapters: [wagmiAdapter],
@@ -74,6 +75,9 @@ createAppKit({
   features: { analytics: false },
 });
 
+// TEMPORARY diagnostics (read-only).
+startWalletDebug(appKit, wagmiAdapter.wagmiConfig);
+
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig} reconnectOnMount>
@@ -83,5 +87,10 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
 }
 
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
-  return <AppKitButton {...(balance ? { balance } : {})} />;
+  return (
+    <>
+      <AppKitButton {...(balance ? { balance } : {})} />
+      <WalletDebugPanel />
+    </>
+  );
 }
