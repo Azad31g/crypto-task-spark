@@ -39,7 +39,10 @@ function sessionSummary(s?: WcSession) {
     topic: s.topic ? s.topic.slice(0, 8) + "…" : null,
     peer: s.peer?.metadata?.name ?? null,
     namespaces: Object.fromEntries(
-      Object.entries(s.namespaces ?? {}).map(([k, v]) => [k, { accounts: v.accounts, chains: v.chains }]),
+      Object.entries(s.namespaces ?? {}).map(([k, v]) => [
+        k,
+        { accounts: v.accounts, chains: v.chains },
+      ]),
     ),
   };
 }
@@ -52,7 +55,11 @@ function wagmiSummary(config: Config) {
     address: a.address ?? null,
     chainId: a.chainId ?? null,
     connector: a.connector?.id ?? null,
-    connections: getConnections(config).map((c) => ({ id: c.connector.id, accounts: c.accounts, chainId: c.chainId })),
+    connections: getConnections(config).map((c) => ({
+      id: c.connector.id,
+      accounts: c.accounts,
+      chainId: c.chainId,
+    })),
   };
 }
 
@@ -61,7 +68,10 @@ function storageSnapshot() {
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i)!;
-      if (/wagmi|walletConnect|@appkit|recentConnector|requestedChains|connected/i.test(k) && !/wc@2:core|keychain|crypto/i.test(k)) {
+      if (
+        /wagmi|walletConnect|@appkit|recentConnector|requestedChains|connected/i.test(k) &&
+        !/wc@2:core|keychain|crypto/i.test(k)
+      ) {
         out[k] = String(localStorage.getItem(k)).slice(0, 120);
       }
     }
@@ -73,25 +83,44 @@ function storageSnapshot() {
     .map((c) => c.split("=")[0]!.trim())
     .filter((k) => /wagmi|walletConnect|recentConnector/i.test(k))
     .join(",");
-  out["wcSessionKeyPresent"] = String(Object.keys(localStorage).some((k) => k.includes("wc@2:client") && k.includes("session")));
+  out["wcSessionKeyPresent"] = String(
+    Object.keys(localStorage).some((k) => k.includes("wc@2:client") && k.includes("session")),
+  );
   return out;
 }
 
-export function startWalletDebug(appKit: { getUniversalProvider?: () => Promise<unknown> }, config: Config) {
+export function startWalletDebug(
+  appKit: { getUniversalProvider?: () => Promise<unknown> },
+  config: Config,
+) {
   if (typeof window === "undefined") return;
-  const tg = (window as unknown as { Telegram?: { WebApp?: { platform?: string; version?: string } } }).Telegram?.WebApp;
-  dbg("boot", { href: location.pathname + location.search.slice(0, 40), tgPlatform: tg?.platform ?? null, tgVersion: tg?.version ?? null, navType: (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined)?.type ?? null });
+  const tg = (
+    window as unknown as { Telegram?: { WebApp?: { platform?: string; version?: string } } }
+  ).Telegram?.WebApp;
+  dbg("boot", {
+    href: location.pathname + location.search.slice(0, 40),
+    tgPlatform: tg?.platform ?? null,
+    tgVersion: tg?.version ?? null,
+    navType:
+      (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined)
+        ?.type ?? null,
+  });
   dbg("storage@boot", storageSnapshot());
   dbg("wagmi@boot", wagmiSummary(config));
 
   watchAccount(config, { onChange: () => dbg("wagmi.change", wagmiSummary(config)) });
-  config.subscribe((s) => s.status, (st) => dbg("wagmi.status", st));
+  config.subscribe(
+    (s) => s.status,
+    (st) => dbg("wagmi.status", st),
+  );
 
   for (const ev of ["visibilitychange", "pageshow", "pagehide", "focus"] as const) {
     window.addEventListener(ev, () => {
       dbg(`lifecycle.${ev}`, { visibility: document.visibilityState });
       if (ev !== "pagehide") {
-        void appKit.getUniversalProvider?.().then((p) => dbg("wc.session@" + ev, sessionSummary((p as UP | undefined)?.session)));
+        void appKit
+          .getUniversalProvider?.()
+          .then((p) => dbg("wc.session@" + ev, sessionSummary((p as UP | undefined)?.session)));
         dbg("wagmi@" + ev, wagmiSummary(config));
       }
     });
@@ -106,8 +135,18 @@ export function startWalletDebug(appKit: { getUniversalProvider?: () => Promise<
       if (!p) return;
       dbg("wc.session@ready", sessionSummary(p.session));
       dbg("wagmi@ready", wagmiSummary(config));
-      dbg("connectors", config.connectors.map((c) => c.id));
-      for (const ev of ["connect", "session_update", "session_event", "session_delete", "disconnect", "display_uri"]) {
+      dbg(
+        "connectors",
+        config.connectors.map((c) => c.id),
+      );
+      for (const ev of [
+        "connect",
+        "session_update",
+        "session_event",
+        "session_delete",
+        "disconnect",
+        "display_uri",
+      ]) {
         p.on(ev, () => {
           dbg("wc.event." + ev, ev === "display_uri" ? undefined : sessionSummary(p.session));
           setTimeout(() => dbg(`wagmi+1s after ${ev}`, wagmiSummary(config)), 1000);
@@ -127,7 +166,11 @@ export function WalletDebugPanel() {
   }, []);
   return (
     <div style={{ position: "fixed", right: 6, bottom: 70, zIndex: 99999, fontSize: 10 }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} className="rounded bg-muted px-2 py-1 text-foreground">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="rounded bg-muted px-2 py-1 text-foreground"
+      >
         DBG
       </button>
       {open && (
@@ -139,7 +182,9 @@ export function WalletDebugPanel() {
           >
             Copy log
           </button>
-          <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all">{lines.join("\n")}</pre>
+          <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all">
+            {lines.join("\n")}
+          </pre>
         </div>
       )}
     </div>
