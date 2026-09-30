@@ -25,21 +25,22 @@ function patchTelegramWindowOpen() {
   if (typeof window === "undefined") return;
   const tg = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp;
   if (!tg) return;
-  window.open = ((url?: string | URL) => {
+  const nativeOpen = window.open.bind(window);
+  window.open = ((url?: string | URL, target?: string, features?: string) => {
     const href = String(url ?? "");
-    try {
-      if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
-        tg.openTelegramLink?.(href);
-      } else if (href.startsWith("http")) {
-        tg.openLink?.(href);
-      } else {
-        // Custom wallet schemes (metamask://, trust://…)
-        window.location.href = href;
-      }
-    } catch {
-      window.location.href = href;
+    if (href.startsWith("https://t.me") || href.startsWith("tg://")) {
+      tg.openTelegramLink?.(href);
+      return null;
     }
-    return null;
+    if (href.startsWith("http")) {
+      tg.openLink?.(href);
+      return null;
+    }
+    // Custom wallet schemes (metamask://wc?uri=…, trust://…): never navigate
+    // the WebView itself (net::ERR_UNKNOWN_URL_SCHEME). Hand them to the
+    // native window.open with AppKit's own "_blank" target so Telegram
+    // Android dispatches them to the wallet app as an external intent.
+    return nativeOpen(href, target ?? "_blank", features);
   }) as typeof window.open;
 }
 
