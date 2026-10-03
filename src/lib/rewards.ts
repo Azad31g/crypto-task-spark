@@ -74,8 +74,4 @@ export type RewardClaim =
   /** Local display only — nothing is written (unreachable legacy screens). */
   | { type: "none" };
 
-export type TaskUnitKind =
-  | "word_complete"
-  | "box_open"
-  | "question_complete"
-  | "daily_streak";
+export type TaskUnitKind = "word_complete" | "box_open" | "question_complete" | "daily_streak";

@@ -31,7 +31,11 @@ import { AZOX_AIRDROP_ABI, AZOX_AIRDROP_ADDRESS, REGISTRATION_FEE } from "./cont
  */
 
 const initData = z.string().min(1).max(8192);
-const taskId = z.string().min(1).max(128).regex(/^[A-Za-z0-9_:.\-]+$/);
+const taskId = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_:.\-]+$/);
 
 export type SecureError =
   | "not_configured"
@@ -123,13 +127,34 @@ const claimSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tap"), fingers: z.number().int().min(1).max(TAP_MAX_FINGERS) }),
   z.object({ type: z.literal("social_task"), taskId }),
   z.object({ type: z.literal("daily_gift") }),
-  z.object({ type: z.literal("box_open"), session: z.number().int().min(0).max(BOXES_PER_DAY - 1) }),
-  z.object({ type: z.literal("word_correct"), index: z.number().int().min(0).max(WORDS_PER_DAY - 1) }),
+  z.object({
+    type: z.literal("box_open"),
+    session: z
+      .number()
+      .int()
+      .min(0)
+      .max(BOXES_PER_DAY - 1),
+  }),
+  z.object({
+    type: z.literal("word_correct"),
+    index: z
+      .number()
+      .int()
+      .min(0)
+      .max(WORDS_PER_DAY - 1),
+  }),
   z.object({
     type: z.literal("question_correct"),
-    index: z.number().int().min(0).max(MAX_QUESTIONS_PER_DAY - 1),
+    index: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_QUESTIONS_PER_DAY - 1),
   }),
-  z.object({ type: z.literal("clicker_round"), taps: z.number().int().min(1).max(CLICKER_MAX_TAPS) }),
+  z.object({
+    type: z.literal("clicker_round"),
+    taps: z.number().int().min(1).max(CLICKER_MAX_TAPS),
+  }),
   z.object({
     type: z.literal("game_score"),
     gameId: z.enum(SCORE_GAMES),

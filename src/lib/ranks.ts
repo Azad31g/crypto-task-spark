@@ -1,12 +1,5 @@
 // Pure data: rank thresholds. Safe to import from server code.
-export type RankKey =
-  | "Bronze"
-  | "Silver"
-  | "Gold"
-  | "Platinum"
-  | "Diamond"
-  | "Epic"
-  | "Legendary";
+export type RankKey = "Bronze" | "Silver" | "Gold" | "Platinum" | "Diamond" | "Epic" | "Legendary";
 
 export type Rank = {
   key: RankKey;
