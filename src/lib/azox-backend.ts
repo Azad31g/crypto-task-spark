@@ -41,9 +41,7 @@ export type DbUser = {
 
 export const BOT_USERNAME = "AZOX_Airdrop_bot";
 
-export function referralLinkFor(code: string | null | undefined): string {
-  return `https://t.me/${BOT_USERNAME}?start=${code ?? ""}`;
-}
+export { referralLinkFor } from "@/lib/referral-link";
 
 export function currentTelegramId(): number | null {
   const tg = getTelegramUser();
