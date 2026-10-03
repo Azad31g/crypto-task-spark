@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { REFERRAL_REWARD, normalizeReferralCode, runReferralSync, type ReferralDeps } from "./referral";
+import {
+  REFERRAL_REWARD,
+  normalizeReferralCode,
+  runReferralSync,
+  type ReferralDeps,
+} from "./referral";
 import { RANKS, rankForPoints } from "./ranks";
 import { referralLinkFor } from "./referral-link";
 
@@ -23,7 +28,14 @@ function fakeDb(seed: Row[]) {
       [...users.values()].find((u) => u.referral_code === c)?.telegram_id ?? null,
     upsertUser: async (code) => {
       if (users.has(id)) return;
-      const row: Row = { telegram_id: id, referral_code: `AZOX${++n}`, points: 0, referral_count: 0, referred_by: null, rank: null };
+      const row: Row = {
+        telegram_id: id,
+        referral_code: `AZOX${++n}`,
+        points: 0,
+        referral_count: 0,
+        referred_by: null,
+        rank: null,
+      };
       users.set(id, row);
       const ref = code ? [...users.values()].find((u) => u.referral_code === code) : undefined;
       if (ref && ref.telegram_id !== id && !referrals.has(id)) {
@@ -109,6 +121,8 @@ describe("referral attribution", () => {
   });
 
   it("builds the Mini App startapp link", () => {
-    expect(referralLinkFor("AZOX12")).toBe("https://t.me/AZOX_Airdrop_bot/AZOX_Airdrop?startapp=AZOX12");
+    expect(referralLinkFor("AZOX12")).toBe(
+      "https://t.me/AZOX_Airdrop_bot/AZOX_Airdrop?startapp=AZOX12",
+    );
   });
 });
