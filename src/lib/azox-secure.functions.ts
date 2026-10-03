@@ -111,7 +111,7 @@ export const syncUser = createServerFn({ method: "POST" })
           console.error("[azox-secure] referrer rank recompute failed", e);
         }
       }
-      return { ok: true as const, user: row as Record<string, unknown> };
+      return { ok: true as const, user: row as Record<string, string | number | boolean | null> };
     } catch (e) {
       return fail("server_error", e);
     }

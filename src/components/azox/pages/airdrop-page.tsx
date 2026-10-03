@@ -246,9 +246,7 @@ export function AirdropPage() {
     let saved: WalletRegistration | null = null;
     try {
       saved = await saveWalletRegistration({
-        telegramId,
         walletAddress,
-        chainId: robinhoodTestnet.id,
         txHash: hash,
       });
     } catch (syncError) {

@@ -16,7 +16,7 @@ export default function TakBomGame() {
   const finalScoreRef = useRef(0);
 
   const game = useTakBomLogic((score) => {
-    if (score > 0) addPoints(score);
+    if (score > 0) addPoints(score, { type: "game_score", gameId: "takbom", score });
     finalScoreRef.current = score;
   });
 

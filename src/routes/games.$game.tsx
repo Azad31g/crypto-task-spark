@@ -51,7 +51,9 @@ function GameRoute() {
   const { game } = Route.useLoaderData();
   const { addPoints } = useAzox();
   if (game === "shoot") {
-    return <ShootGame onGameOver={(score) => addPoints(score)} />;
+    return <ShootGame onGameOver={(score) =>
+          addPoints(score, { type: "game_score", gameId: "shoot", score })
+        } />;
   }
   if (game === "snake") {
     return <SnakeGame />;

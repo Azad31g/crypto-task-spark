@@ -110,7 +110,7 @@ export function useAzoxBox() {
     setWinners(w + 1);
     setPointsToday(pts);
     setJustOpened(true);
-    addPoints(BOX_REWARD);
+    addPoints(BOX_REWARD, { type: "box_open", session: idx });
     haptic("medium");
     window.setTimeout(() => {
       busy.current = false;

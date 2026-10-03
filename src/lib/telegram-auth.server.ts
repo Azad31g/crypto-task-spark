@@ -22,7 +22,7 @@ const enc = new TextEncoder();
 async function hmac(key: Uint8Array, data: string): Promise<Uint8Array> {
   const k = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],

@@ -134,7 +134,7 @@ export default function QuestionDay() {
     haptic();
     if (i === current.correct) {
       setScore((s) => s + POINTS_PER_CORRECT);
-      addPoints(POINTS_PER_CORRECT);
+      addPoints(POINTS_PER_CORRECT, { type: "question_correct", index });
     }
   };
 
