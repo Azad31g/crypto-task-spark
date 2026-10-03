@@ -11,7 +11,7 @@ import { WagmiProvider } from "wagmi";
 import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
-import { startWalletDebug, WalletDebugPanel } from "./wallet-debug";
+import { callerTrace, dbg, startWalletDebug, WalletDebugPanel } from "./wallet-debug";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 
 // --- Telegram Mini App support -------------------------------------------
