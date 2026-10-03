@@ -15,13 +15,14 @@ import {
   MAX_GAME_SCORE,
   MAX_QUESTIONS_PER_DAY,
   QUESTION_POINTS,
+  QUESTIONS_PER_DAY,
   SCORE_GAMES,
-  SOCIAL_TASK_POINTS,
   TAP_MAX_FINGERS,
   TASK_UNITS,
   WORDS_PER_DAY,
   WORD_POINTS,
 } from "./rewards";
+import { SOCIAL_TASKS } from "./social-tasks";
 import { AZOX_AIRDROP_ABI, AZOX_AIRDROP_ADDRESS, REGISTRATION_FEE } from "./contracts";
 
 /**
@@ -48,6 +49,8 @@ export type SecureError =
   | "full"
   | "not_verified"
   | "conflict"
+  | "cooldown"
+  | "busy"
   | "server_error";
 
 type Fail = { ok: false; error: SecureError; message?: string };
@@ -187,10 +190,9 @@ export const claimReward = createServerFn({ method: "POST" })
           return { ok: true as const, granted: true, points: r.points, rank: r.rank };
         }
         case "social_task": {
-          const t = await h.findTask(c.taskId);
-          const pts = t?.points ?? SOCIAL_TASK_POINTS[c.taskId];
-          if (!pts || pts <= 0) return fail("unknown_task");
-          return once(`task-${c.taskId}`, pts);
+          const v = await verifySocialTask(id, c.taskId);
+          if (!v.ok) return fail(v.error);
+          return once(`task-${c.taskId}`, v.points);
         }
         case "daily_gift":
           return once(`daily-gift-${day}`, DAILY_GIFT_POINTS);
@@ -201,8 +203,14 @@ export const claimReward = createServerFn({ method: "POST" })
         case "question_correct":
           return once(`question-${day}-${c.index}`, QUESTION_POINTS);
         case "clicker_round": {
-          const slot = Math.floor(Date.now() / CLICKER_COOLDOWN_MS);
-          return once(`clicker-${slot}`, c.taps * CLICKER_POINTS_PER_TAP);
+          // True 4h cooldown from the previous paid round. The key is derived
+          // from that previous round, so concurrent claims collide on the
+          // reward_events unique key and only one can be paid.
+          const last = await h.lastEvent(id, "clicker-");
+          if (last && Date.now() - Date.parse(last.created_at) < CLICKER_COOLDOWN_MS) {
+            return fail("cooldown");
+          }
+          return once(`clicker-after-${last?.id ?? "first"}`, c.taps * CLICKER_POINTS_PER_TAP);
         }
       }
     } catch (e) {
@@ -220,8 +228,9 @@ export const recordTask = createServerFn({ method: "POST" })
     if (!a.ok) return fail(a.error);
     try {
       const h = await helpers();
+      // Only after the reward itself passed server verification.
+      if (!(await h.hasEvent(a.user.id, `task-${data.taskId}`))) return fail("not_verified");
       const t = await h.findTask(data.taskId);
-      if (!t && SOCIAL_TASK_POINTS[data.taskId] === undefined) return fail("unknown_task");
       await h.insertTaskIds(a.user.id, [data.taskId]);
       if (t && t.taskReward > 0) {
         await h.insertTaskIds(a.user.id, h.unitIds(`${data.taskId}-reward`, t.taskReward));
@@ -247,7 +256,36 @@ export const recordTaskUnits = createServerFn({ method: "POST" })
     if (!a.ok) return fail(a.error);
     try {
       const h = await helpers();
+      const id = a.user.id;
       const day = h.utcDay();
+      // Require the server-recorded rewards for the underlying game events.
+      let earned = false;
+      if (data.kind === "word_complete") {
+        const keys = Array.from({ length: WORDS_PER_DAY }, (_, i) => `word-${day}-${i}`);
+        earned = (await h.countEvents(id, keys)) === keys.length;
+      } else if (data.kind === "question_complete") {
+        const keys = Array.from({ length: QUESTIONS_PER_DAY }, (_, i) => `question-${day}-${i}`);
+        earned = (await h.countEvents(id, keys)) === keys.length;
+      } else if (data.kind === "box_open") {
+        earned = (await h.lastEvent(id, `box-${day}-`)) !== null;
+      } else {
+        const days = Array.from({ length: 5 }, (_, i) => h.utcDay(Date.now() - i * 86_400_000));
+        const gifts = await h.countEvents(
+          id,
+          days.map((d) => `daily-gift-${d}`),
+        );
+        const { data: recent } = await h
+          .db()
+          .from("user_tasks")
+          .select("task_id")
+          .eq("telegram_id", id)
+          .in(
+            "task_id",
+            days.slice(1).map((d) => `game-streak-${d}`),
+          );
+        earned = gifts === 5 && (recent ?? []).length === 0;
+      }
+      if (!earned) return fail("not_verified");
       const base = {
         word_complete: `game-word-complete-${day}`,
         box_open: `game-box-open-${day}`,
@@ -335,34 +373,75 @@ export const globalButtonPress = createServerFn({ method: "POST" })
     const slot = Math.floor(now / GLOBAL_BUTTON_SLOT_MS) * GLOBAL_BUTTON_SLOT_MS;
     if (now - slot >= GLOBAL_BUTTON_ACTIVE_MS) return fail("window_closed");
     const rowId = `game-global-button-${slot}`;
+    const eventKey = `global-button-${slot}`;
     try {
       const h = await helpers();
-      const { data: mine } = await h
-        .db()
-        .from("user_tasks")
-        .select("task_id")
-        .eq("telegram_id", id)
-        .eq("task_id", rowId)
-        .maybeSingle();
-      if (mine) return fail("already_claimed");
+      if (await h.hasEvent(id, eventKey)) {
+        await h.insertTaskIds(id, [rowId]); // heal a half-finished earlier press
+        await h.recomputeTasksDone(id);
+        return fail("already_claimed");
+      }
 
-      const { count, error: cErr } = await h
-        .db()
-        .from("user_tasks")
-        .select("telegram_id", { count: "exact", head: true })
-        .eq("task_id", rowId);
-      if (cErr) return fail("server_error", cErr.message);
-      if ((count ?? 0) >= GLOBAL_BUTTON_MAX_WINNERS) return fail("full");
+      // Atomic winner seat: submit_global_best is an atomic strictly-higher
+      // upsert, so exactly one request can move the slot counter from n-1
+      // to n. Seats above the cap are never taken.
+      const seatGame = `global-button-seat-${slot}`;
+      let seat = 0;
+      for (let attempt = 0; attempt < 40 && seat === 0; attempt++) {
+        const { data: cur } = await h
+          .db()
+          .from("global_best_scores")
+          .select("best_score")
+          .eq("game_id", seatGame)
+          .maybeSingle();
+        const next = Number(cur?.best_score ?? 0) + 1;
+        if (next > GLOBAL_BUTTON_MAX_WINNERS) return fail("full");
+        const { data: won, error } = await h.db().rpc("submit_global_best", {
+          p_game_id: seatGame,
+          p_score: next,
+          p_telegram_id: id,
+          p_name: null,
+        });
+        if (error) return fail("server_error", error.message);
+        if (won === true) seat = next;
+        else await new Promise((r) => setTimeout(r, 10 + Math.random() * 40));
+      }
+      if (seat === 0) return fail("busy");
 
-      const added = await h.insertTaskIds(id, [rowId]);
-      if (added === 0) return fail("already_claimed");
+      // One win per user per slot: reward_events unique (telegram_id, key).
+      const r = await h.claimOnce(id, eventKey, GLOBAL_BUTTON_REWARD);
+      if (!r.granted) return fail("already_claimed");
+      await h.insertTaskIds(id, [rowId]);
       await h.recomputeTasksDone(id);
-      const r = await h.claimOnce(id, `global-button-${slot}`, GLOBAL_BUTTON_REWARD);
-      return { ok: true as const, granted: r.granted, points: r.points, rank: r.rank, slot };
+      return { ok: true as const, granted: true, points: r.points, rank: r.rank, slot };
     } catch (e) {
       return fail("server_error", e);
     }
   });
+
+/* ----------------------------- social verification ------------------------- */
+
+type SocialCheck = { ok: true; points: number } | { ok: false; error: SecureError };
+
+/** Server-side proof for a social task, using the project's real checks. */
+async function verifySocialTask(telegramId: number, id: string): Promise<SocialCheck> {
+  const h = await helpers();
+  const row = await h.findTask(id);
+  const fallback = SOCIAL_TASKS.flatMap((g) => g.tasks).find((t) => t.id === id);
+  const points = row?.points ?? fallback?.points ?? 0;
+  if (points <= 0) return { ok: false, error: "unknown_task" };
+  const platform = row?.platform ?? fallback?.platform.toLowerCase() ?? "";
+  if (platform === "telegram") {
+    const chat = row?.url.match(/t\.me\/([A-Za-z0-9_]+)/)?.[1] ?? fallback?.verifyChat;
+    if (!chat || !(await h.isTelegramMember(chat, telegramId))) {
+      return { ok: false, error: "not_verified" };
+    }
+  } else if (platform === "instagram") {
+    if (!(await h.isInstagramVerified(telegramId, id))) return { ok: false, error: "not_verified" };
+  }
+  // X, TikTok, Threads, YouTube, Discord: no verification integration exists.
+  return { ok: true, points };
+}
 
 /* --------------------------- registerAirdropWallet ------------------------- */
 

@@ -178,8 +178,7 @@ export async function isTelegramMember(chat: string, userId: number): Promise<bo
   );
   const body = (await res.json()) as { ok?: boolean; result?: { status?: string } };
   return (
-    body.ok === true &&
-    ["member", "administrator", "creator"].includes(body.result?.status ?? "")
+    body.ok === true && ["member", "administrator", "creator"].includes(body.result?.status ?? "")
   );
 }
 

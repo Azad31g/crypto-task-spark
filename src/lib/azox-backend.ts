@@ -86,7 +86,16 @@ export async function fetchUser(telegramId: number): Promise<DbUser | null> {
  * Asks the server to pay a reward. The server decides the amount for fixed
  * rewards; returns the authoritative total when available.
  */
-export async function claimRewardRemote(claim: RewardClaim): Promise<number | null> {
+/** In-flight reward claims; follow-up task writes wait for them. */
+let pendingClaims: Promise<unknown> = Promise.resolve();
+
+export function claimRewardRemote(claim: RewardClaim): Promise<number | null> {
+  const p = doClaimReward(claim);
+  pendingClaims = Promise.allSettled([pendingClaims, p]);
+  return p;
+}
+
+async function doClaimReward(claim: RewardClaim): Promise<number | null> {
   if (claim.type === "none") return null;
   const initData = rawInitData();
   if (!initData) return null;
@@ -148,6 +157,7 @@ export async function fetchAllTaskCounts(): Promise<Map<number, number>> {
 
 /** Records a social task (and its bonus task units) on the server. */
 export async function recordTaskCompletion(taskId: string): Promise<void> {
+  await pendingClaims;
   const initData = rawInitData();
   if (!initData) return;
   try {
@@ -160,6 +170,7 @@ export async function recordTaskCompletion(taskId: string): Promise<void> {
 
 /** Game achievement task units; the server decides ids and unit counts. */
 export async function recordTaskUnits(kind: TaskUnitKind): Promise<number> {
+  await pendingClaims;
   const initData = rawInitData();
   if (!initData) return 0;
   try {
