@@ -57,6 +57,7 @@ export function usePoints() {
       points: Math.max(0, prev.points + amount),
       taps: amount > 0 ? prev.taps + 1 : prev.taps,
     }));
+    if (amount <= 0) return;
     void claimRewardRemote(claim).then((total) => {
       if (typeof total === "number") {
         setState((prev) => ({ ...prev, points: total }));
