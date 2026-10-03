@@ -134,10 +134,7 @@ export async function fetchTaskCount(telegramId: number): Promise<number> {
 export async function fetchAllTaskCounts(): Promise<Map<number, number>> {
   const counts = new Map<number, number>();
   try {
-    const { data, error } = await db
-      .from("user_tasks")
-      .select("telegram_id, task_id")
-      .limit(50000);
+    const { data, error } = await db.from("user_tasks").select("telegram_id, task_id").limit(50000);
     if (error) throw error;
     const seen = new Set<string>();
     for (const row of (data ?? []) as {
@@ -199,16 +196,11 @@ export async function syncTasksDone(): Promise<number> {
   return fetchTaskCount(telegramId);
 }
 
-
-
 /**
  * Submits a score for the global best. Returns task units earned (10 only
  * when the server stored a new world record).
  */
-export async function submitGameScoreRemote(
-  gameId: ScoreGame,
-  score: number,
-): Promise<number> {
+export async function submitGameScoreRemote(gameId: ScoreGame, score: number): Promise<number> {
   const initData = rawInitData();
   if (!initData || !Number.isInteger(score) || score <= 0) return 0;
   try {
@@ -233,10 +225,7 @@ export type LeaderboardRow = {
   photo_url: string | null;
 };
 
-export function displayName(row: {
-  username: string | null;
-  first_name: string | null;
-}): string {
+export function displayName(row: { username: string | null; first_name: string | null }): string {
   return row.username ? `@${row.username}` : (row.first_name ?? "AZOX Player");
 }
 
@@ -247,7 +236,9 @@ export async function fetchLeaderboard(
   try {
     const { data, error } = await db
       .from("users")
-      .select("telegram_id, username, first_name, last_name, points, tasks_done, referral_count, rank, photo_url")
+      .select(
+        "telegram_id, username, first_name, last_name, points, tasks_done, referral_count, rank, photo_url",
+      )
       .order(column, { ascending: false })
       .limit(limit);
     if (error) throw error;
@@ -279,9 +270,7 @@ export async function registerReferral(_code: string | null): Promise<boolean> {
 }
 
 /** Users who joined through this user's referral link. */
-export async function fetchReferredUsers(
-  telegramId: number,
-): Promise<ReferredUser[]> {
+export async function fetchReferredUsers(telegramId: number): Promise<ReferredUser[]> {
   try {
     const { data, error } = await db
       .from("users")

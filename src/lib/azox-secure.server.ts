@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped external project tables */
 // Server-only helpers for verified AZOX writes (service-role client).
 import { getExternalSupabaseAdmin } from "@/integrations/external-supabase/admin.server";
 import { RANK_THRESHOLDS_PAYLOAD } from "./rewards";
