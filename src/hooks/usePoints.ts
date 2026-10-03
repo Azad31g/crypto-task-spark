@@ -9,10 +9,11 @@ import {
   writeStorage,
 } from "@/lib/points";
 import {
-  addPointsRemote,
+  claimRewardRemote,
   currentTelegramId,
   fetchUser,
 } from "@/lib/azox-backend";
+import type { RewardClaim } from "@/lib/rewards";
 
 type PointsState = { points: number; taps: number; globalWins: number };
 
@@ -49,14 +50,14 @@ export function usePoints() {
     writeStorage(STORAGE_KEYS.points, state);
   }, [state, hydrated]);
 
-  const addPoints = useCallback((amount: number) => {
+  const addPoints = useCallback((amount: number, claim: RewardClaim) => {
     // Optimistic local update, then reconcile with the server total.
     setState((prev) => ({
       ...prev,
       points: Math.max(0, prev.points + amount),
       taps: amount > 0 ? prev.taps + 1 : prev.taps,
     }));
-    void addPointsRemote(amount).then((total) => {
+    void claimRewardRemote(claim).then((total) => {
       if (typeof total === "number") {
         setState((prev) => ({ ...prev, points: total }));
       }
@@ -75,7 +76,7 @@ export function usePoints() {
   const tap = useCallback(
     (fingers = 1) => {
       const gained = Math.max(1, fingers) * rank.pointsPerFinger;
-      addPoints(gained);
+      addPoints(gained, { type: "tap", fingers: Math.max(1, fingers) });
       return gained;
     },
     [addPoints, rank.pointsPerFinger],

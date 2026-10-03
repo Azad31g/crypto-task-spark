@@ -1,4 +1,5 @@
 import { AZOX_IMAGES } from "./azox-images";
+import type { RankKey } from "./ranks";
 
 export {
   RANKS,

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { STORAGE_KEYS, readStorage, todayKey, writeStorage } from "@/lib/points";
-import { recordTaskCompletion, recordTaskUnits } from "@/lib/azox-backend";
+import { recordTaskCompletion } from "@/lib/azox-backend";
+import { DAILY_GIFT_POINTS } from "@/lib/rewards";
+import type { RewardClaim } from "@/lib/rewards";
 
-export const DAILY_GIFT_POINTS = 200;
+export { DAILY_GIFT_POINTS };
 
 type TasksState = { completed: string[]; dailyClaimedOn: string | null };
 
 const DEFAULT: TasksState = { completed: [], dailyClaimedOn: null };
 
-export function useTasks(onEarn?: (amount: number) => void) {
+export function useTasks(onEarn?: (amount: number, claim: RewardClaim) => void) {
   const [state, setState] = useState<TasksState>(DEFAULT);
   const [hydrated, setHydrated] = useState(false);
 
@@ -42,13 +44,10 @@ export function useTasks(onEarn?: (amount: number) => void) {
           : { ...prev, completed: [...prev.completed, id] },
       );
       // onEarn already awards points on the server through usePoints.
-      if (points > 0) onEarn?.(points);
-      void recordTaskCompletion(id, 0);
-      // Extra task units for this task are recorded in user_tasks too,
-      // so the DB stays the single source of truth.
-      if (taskReward && taskReward > 0) {
-        void recordTaskUnits(`${id}-reward`, taskReward);
-      }
+      if (points > 0) onEarn?.(points, { type: "social_task", taskId: id });
+      // The server records the task and its DB-defined bonus task units.
+      void taskReward;
+      void recordTaskCompletion(id);
 
 
       // users.tasks_done is mirrored from user_tasks inside
@@ -70,7 +69,7 @@ export function useTasks(onEarn?: (amount: number) => void) {
       claimed = true;
       return { ...prev, dailyClaimedOn: day };
     });
-    if (claimed) onEarn?.(DAILY_GIFT_POINTS);
+    if (claimed) onEarn?.(DAILY_GIFT_POINTS, { type: "daily_gift" });
     return claimed;
   }, [onEarn]);
 
