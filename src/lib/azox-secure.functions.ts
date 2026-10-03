@@ -78,28 +78,60 @@ export const syncUser = createServerFn({ method: "POST" })
     if (!a.ok) return fail(a.error);
     try {
       const h = await helpers();
+      const { runReferralSync } = await import("./referral");
       const u = a.user;
-      const { data: before } = await h
-        .db()
-        .from("users")
-        .select("telegram_id")
-        .eq("telegram_id", u.id)
-        .maybeSingle();
-      const isNew = !before;
+      let upsertErr: string | null = null;
 
-      const base = {
-        p_telegram_id: u.id,
-        p_username: u.username ?? null,
-        p_first_name: u.first_name ?? null,
-        p_last_name: u.last_name ?? null,
-        p_referral_code: a.startParam,
-      };
-      let { error } = await h.db().rpc("upsert_user", {
-        ...base,
-        p_photo_url: u.photo_url ?? null,
+      // Referral code comes ONLY from the verified start_param; it is passed
+      // to upsert_user only for a brand-new user with a valid, non-self code.
+      await runReferralSync(u.id, a.startParam, {
+        userExists: async (id) => {
+          const { data: r } = await h
+            .db()
+            .from("users")
+            .select("telegram_id")
+            .eq("telegram_id", id)
+            .maybeSingle();
+          return Boolean(r);
+        },
+        findReferrerByCode: async (code) => {
+          const { data: r } = await h
+            .db()
+            .from("users")
+            .select("telegram_id")
+            .eq("referral_code", code)
+            .maybeSingle();
+          return r ? Number(r.telegram_id) : null;
+        },
+        upsertUser: async (code) => {
+          const base = {
+            p_telegram_id: u.id,
+            p_username: u.username ?? null,
+            p_first_name: u.first_name ?? null,
+            p_last_name: u.last_name ?? null,
+            p_referral_code: code,
+          };
+          let { error } = await h.db().rpc("upsert_user", {
+            ...base,
+            p_photo_url: u.photo_url ?? null,
+          });
+          if (error) ({ error } = await h.db().rpc("upsert_user", base));
+          if (error) upsertErr = error.message;
+        },
+        readReferredBy: async (id) => {
+          const { data: r } = await h
+            .db()
+            .from("users")
+            .select("referred_by")
+            .eq("telegram_id", id)
+            .maybeSingle();
+          return r?.referred_by ? Number(r.referred_by) : null;
+        },
+        recomputeRank: async (id) => {
+          await h.grantPoints(id, 0);
+        },
       });
-      if (error) ({ error } = await h.db().rpc("upsert_user", base));
-      if (error) return fail("server_error", error.message);
+      if (upsertErr) return fail("server_error", upsertErr);
 
       const { data: row, error: readErr } = await h
         .db()
@@ -108,16 +140,6 @@ export const syncUser = createServerFn({ method: "POST" })
         .eq("telegram_id", u.id)
         .maybeSingle();
       if (readErr || !row) return fail("server_error", readErr?.message ?? "no row");
-
-      // upsert_user awards the referrer +1000 only on first creation;
-      // recompute the referrer's rank afterwards (adds nothing).
-      if (isNew && row.referred_by) {
-        try {
-          await h.grantPoints(Number(row.referred_by), 0);
-        } catch (e) {
-          console.error("[azox-secure] referrer rank recompute failed", e);
-        }
-      }
       return { ok: true as const, user: row as Record<string, string | number | boolean | null> };
     } catch (e) {
       return fail("server_error", e);
