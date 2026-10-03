@@ -86,7 +86,16 @@ export async function fetchUser(telegramId: number): Promise<DbUser | null> {
  * Asks the server to pay a reward. The server decides the amount for fixed
  * rewards; returns the authoritative total when available.
  */
-export async function claimRewardRemote(claim: RewardClaim): Promise<number | null> {
+/** In-flight reward claims; follow-up task writes wait for them. */
+let pendingClaims: Promise<unknown> = Promise.resolve();
+
+export function claimRewardRemote(claim: RewardClaim): Promise<number | null> {
+  const p = doClaimReward(claim);
+  pendingClaims = Promise.allSettled([pendingClaims, p]);
+  return p;
+}
+
+async function doClaimReward(claim: RewardClaim): Promise<number | null> {
   if (claim.type === "none") return null;
   const initData = rawInitData();
   if (!initData) return null;
@@ -125,10 +134,7 @@ export async function fetchTaskCount(telegramId: number): Promise<number> {
 export async function fetchAllTaskCounts(): Promise<Map<number, number>> {
   const counts = new Map<number, number>();
   try {
-    const { data, error } = await db
-      .from("user_tasks")
-      .select("telegram_id, task_id")
-      .limit(50000);
+    const { data, error } = await db.from("user_tasks").select("telegram_id, task_id").limit(50000);
     if (error) throw error;
     const seen = new Set<string>();
     for (const row of (data ?? []) as {
@@ -148,6 +154,7 @@ export async function fetchAllTaskCounts(): Promise<Map<number, number>> {
 
 /** Records a social task (and its bonus task units) on the server. */
 export async function recordTaskCompletion(taskId: string): Promise<void> {
+  await pendingClaims;
   const initData = rawInitData();
   if (!initData) return;
   try {
@@ -160,6 +167,7 @@ export async function recordTaskCompletion(taskId: string): Promise<void> {
 
 /** Game achievement task units; the server decides ids and unit counts. */
 export async function recordTaskUnits(kind: TaskUnitKind): Promise<number> {
+  await pendingClaims;
   const initData = rawInitData();
   if (!initData) return 0;
   try {
@@ -188,16 +196,11 @@ export async function syncTasksDone(): Promise<number> {
   return fetchTaskCount(telegramId);
 }
 
-
-
 /**
  * Submits a score for the global best. Returns task units earned (10 only
  * when the server stored a new world record).
  */
-export async function submitGameScoreRemote(
-  gameId: ScoreGame,
-  score: number,
-): Promise<number> {
+export async function submitGameScoreRemote(gameId: ScoreGame, score: number): Promise<number> {
   const initData = rawInitData();
   if (!initData || !Number.isInteger(score) || score <= 0) return 0;
   try {
@@ -222,10 +225,7 @@ export type LeaderboardRow = {
   photo_url: string | null;
 };
 
-export function displayName(row: {
-  username: string | null;
-  first_name: string | null;
-}): string {
+export function displayName(row: { username: string | null; first_name: string | null }): string {
   return row.username ? `@${row.username}` : (row.first_name ?? "AZOX Player");
 }
 
@@ -236,7 +236,9 @@ export async function fetchLeaderboard(
   try {
     const { data, error } = await db
       .from("users")
-      .select("telegram_id, username, first_name, last_name, points, tasks_done, referral_count, rank, photo_url")
+      .select(
+        "telegram_id, username, first_name, last_name, points, tasks_done, referral_count, rank, photo_url",
+      )
       .order(column, { ascending: false })
       .limit(limit);
     if (error) throw error;
@@ -268,9 +270,7 @@ export async function registerReferral(_code: string | null): Promise<boolean> {
 }
 
 /** Users who joined through this user's referral link. */
-export async function fetchReferredUsers(
-  telegramId: number,
-): Promise<ReferredUser[]> {
+export async function fetchReferredUsers(telegramId: number): Promise<ReferredUser[]> {
   try {
     const { data, error } = await db
       .from("users")

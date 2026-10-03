@@ -23,6 +23,8 @@ export const WORD_POINTS = 80;
 export const WORDS_PER_DAY = 5;
 
 export const QUESTION_POINTS = 100;
+/** Number of questions in the QuestionDay set (all must be answered correctly). */
+export const QUESTIONS_PER_DAY = 6;
 /** Upper bound on question index accepted per day (sanity cap only). */
 export const MAX_QUESTIONS_PER_DAY = 20;
 
