@@ -95,7 +95,10 @@ if (wcClient?.connectWalletConnect) {
   let inFlight: { promise: Promise<void>; startedAt: number } | null = null;
   wcClient.connectWalletConnect = () => {
     if (inFlight && Date.now() - inFlight.startedAt < PAIRING_WINDOW_MS) {
-      dbg("wc.connect.deduplicated", { ageMs: Date.now() - inFlight.startedAt, caller: callerTrace() });
+      dbg("wc.connect.deduplicated", {
+        ageMs: Date.now() - inFlight.startedAt,
+        caller: callerTrace(),
+      });
       return inFlight.promise;
     }
     dbg("wc.connect.start", { caller: callerTrace() });
@@ -119,7 +122,6 @@ if (wcClient?.connectWalletConnect) {
 
 // TEMPORARY diagnostics (read-only).
 startWalletDebug(appKit, wagmiAdapter.wagmiConfig);
-
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (
