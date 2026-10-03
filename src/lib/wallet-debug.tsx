@@ -202,9 +202,6 @@ export function startWalletDebug(
       prev = st;
     },
   );
-  config.emitter?.on?.("message", (m: { type?: string }) => {
-    if (m?.type === "display_uri") dbg("wagmi.emitter.display_uri");
-  });
 
   let up: UP | undefined;
   const snapshot = (tag: string) => {
