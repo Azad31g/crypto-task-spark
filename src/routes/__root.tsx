@@ -171,7 +171,7 @@ export const Route = createRootRoute({
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Loaded synchronously (baseline behaviour): the Telegram WebApp
             bridge must exist before the wallet launch bridge is installed. */}
