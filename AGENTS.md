@@ -8,3 +8,6 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- All AZOX database writes go through server functions in src/lib/azox-secure.functions.ts that identify the user only from server-verified Telegram initData; why: browser-supplied ids and amounts cannot be trusted.
+- Server code imports reward/rank values only from pure files (src/lib/ranks.ts, src/lib/rewards.ts, src/lib/social-tasks.ts); why: azox-data.ts pulls in images.
