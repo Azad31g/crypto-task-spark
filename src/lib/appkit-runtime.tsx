@@ -75,8 +75,51 @@ const appKit = createAppKit({
   features: { analytics: false },
 });
 
+// --- Single pending WalletConnect attempt ---------------------------------
+// AppKit 1.8.23 already de-duplicates WalletConnect attempts inside Telegram
+// via ConnectionController.connectWalletConnect({ cache: "auto" })
+// (wcConnectionPromise). But the connecting view calls it with
+// { cache: "never" } (w3m-connecting-wc-view initializeConnection), which
+// bypasses that guard, so a second call creates a second pairing/proposal
+// and the deep link the wallet received no longer matches the attempt the
+// Mini App is waiting on. Apply the same single-flight guarantee at the
+// client AppKit hands to ConnectionController (same object reference, see
+// appkit-base-client createClients → ConnectionController.setClient).
+// A new attempt is allowed once AppKit's own pairing window (4 min) passes.
+type WcClient = { connectWalletConnect?: () => Promise<void> };
+const PAIRING_WINDOW_MS = 4 * 60 * 1000;
+const wcClient = (appKit as unknown as { connectionControllerClient?: WcClient })
+  .connectionControllerClient;
+if (wcClient?.connectWalletConnect) {
+  const original = wcClient.connectWalletConnect.bind(wcClient);
+  let inFlight: { promise: Promise<void>; startedAt: number } | null = null;
+  wcClient.connectWalletConnect = () => {
+    if (inFlight && Date.now() - inFlight.startedAt < PAIRING_WINDOW_MS) {
+      dbg("wc.connect.deduplicated", { ageMs: Date.now() - inFlight.startedAt, caller: callerTrace() });
+      return inFlight.promise;
+    }
+    dbg("wc.connect.start", { caller: callerTrace() });
+    const promise = original().then(
+      () => dbg("wc.connect.resolved"),
+      (e: unknown) => {
+        dbg("wc.connect.rejected", { error: e instanceof Error ? e.message : String(e) });
+        throw e;
+      },
+    );
+    const entry = { promise, startedAt: Date.now() };
+    inFlight = entry;
+    void promise
+      .catch(() => {})
+      .finally(() => {
+        if (inFlight === entry) inFlight = null;
+      });
+    return promise;
+  };
+}
+
 // TEMPORARY diagnostics (read-only).
 startWalletDebug(appKit, wagmiAdapter.wagmiConfig);
+
 
 export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
   return (

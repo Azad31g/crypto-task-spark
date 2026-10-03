@@ -67,6 +67,20 @@ export function dbg(msg: string, data?: unknown) {
   subs.forEach((f) => f());
 }
 
+/** Function names of the call stack (no arguments/values). */
+export function callerTrace() {
+  return (new Error().stack ?? "")
+    .split("\n")
+    .slice(2, 9)
+    .map((l) =>
+      l
+        .trim()
+        .replace(/^at\s+/, "")
+        .replace(/\(?https?:\/\/[^)]*\/([^/?)]+)[^)]*\)?/, "@$1"),
+    )
+    .join(" < ");
+}
+
 type WcSession = {
   topic?: string;
   pairingTopic?: string;
@@ -82,7 +96,12 @@ type SignClient = Emitter & {
   core?: {
     relayer?: Emitter & { connected?: boolean; connecting?: boolean };
     pairing?: {
-      getPairings?: () => { topic?: string; active?: boolean; expiry?: number; peerMetadata?: { name?: string } }[];
+      getPairings?: () => {
+        topic?: string;
+        active?: boolean;
+        expiry?: number;
+        peerMetadata?: { name?: string };
+      }[];
       events?: Emitter;
     };
   };
@@ -98,7 +117,10 @@ function sessionSummary(s?: WcSession) {
     expiry: s.expiry ?? null,
     peer: s.peer?.metadata?.name ?? null,
     namespaces: Object.fromEntries(
-      Object.entries(s.namespaces ?? {}).map(([k, v]) => [k, { accounts: v.accounts, chains: v.chains }]),
+      Object.entries(s.namespaces ?? {}).map(([k, v]) => [
+        k,
+        { accounts: v.accounts, chains: v.chains },
+      ]),
     ),
   };
 }
@@ -107,7 +129,10 @@ function wcState(p?: UP) {
   const c = p?.client;
   return {
     providerSession: sessionSummary(p?.session),
-    relay: { connected: c?.core?.relayer?.connected ?? null, connecting: c?.core?.relayer?.connecting ?? null },
+    relay: {
+      connected: c?.core?.relayer?.connected ?? null,
+      connecting: c?.core?.relayer?.connecting ?? null,
+    },
     pairings: (c?.core?.pairing?.getPairings?.() ?? []).map((x) => ({
       topic: fp(x.topic),
       active: x.active ?? null,
@@ -227,9 +252,36 @@ export function startWalletDebug(
       dbg("wc.provider", { available: Boolean(up), hasClient: Boolean(up?.client) });
       if (!up) return;
       snapshot("ready");
-      dbg("connectors", config.connectors.map((c) => c.id));
+      dbg(
+        "connectors",
+        config.connectors.map((c) => c.id),
+      );
+      for (const conn of config.connectors.filter((c) => c.id === "walletConnect")) {
+        const orig = conn.connect.bind(conn);
+        (conn as { connect: typeof conn.connect }).connect = ((args?: unknown) => {
+          dbg("wagmi.wcConnector.connect.start", { caller: callerTrace() });
+          return (orig as (a?: unknown) => Promise<unknown>)(args).then(
+            (r) => {
+              dbg("wagmi.wcConnector.connect.resolved", wcState(up));
+              return r;
+            },
+            (e: unknown) => {
+              dbg("wagmi.wcConnector.connect.rejected", {
+                error: e instanceof Error ? e.message : String(e),
+              });
+              throw e;
+            },
+          );
+        }) as typeof conn.connect;
+      }
 
-      for (const ev of ["connect", "session_update", "session_event", "session_delete", "disconnect"]) {
+      for (const ev of [
+        "connect",
+        "session_update",
+        "session_event",
+        "session_delete",
+        "disconnect",
+      ]) {
         up.on(ev, () => {
           dbg("up.event." + ev);
           snapshot("up." + ev);
@@ -244,6 +296,8 @@ export function startWalletDebug(
       const c = up.client;
       for (const ev of [
         "session_proposal",
+        "session_connect",
+        "session_authenticate",
         "session_update",
         "session_extend",
         "session_event",
@@ -251,7 +305,10 @@ export function startWalletDebug(
         "session_expire",
         "proposal_expire",
       ]) {
-        c?.on?.(ev, () => dbg("sign.event." + ev));
+        c?.on?.(ev, (arg: unknown) => {
+          const a = arg as { id?: number; topic?: string } | undefined;
+          dbg("sign.event." + ev, { id: a?.id ?? null, topic: fp(a?.topic) });
+        });
       }
       for (const ev of ["relayer_connect", "relayer_disconnect", "relayer_error"]) {
         c?.core?.relayer?.on?.(ev, () =>
