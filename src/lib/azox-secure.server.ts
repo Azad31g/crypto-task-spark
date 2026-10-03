@@ -107,19 +107,91 @@ export function unitIds(baseId: string, units: number): string[] {
 }
 
 /** Social task definition from the tasks table (authoritative reward values). */
-export async function findTask(
-  taskId: string,
-): Promise<{ points: number; taskReward: number } | null> {
+export async function findTask(taskId: string): Promise<{
+  points: number;
+  taskReward: number;
+  platform: string;
+  url: string;
+} | null> {
   const { data } = await db()
     .from("tasks")
-    .select("id, points, task_reward")
+    .select("id, platform, url, points, task_reward")
     .eq("id", taskId)
     .maybeSingle();
   if (!data) return null;
   return {
     points: Math.max(0, Number(data.points) || 0),
     taskReward: Math.max(0, Math.min(100, Number(data.task_reward) || 0)),
+    platform: String(data.platform ?? "").toLowerCase(),
+    url: String(data.url ?? ""),
   };
+}
+
+/** True when the user already has this reward_events key. */
+export async function hasEvent(telegramId: number, key: string): Promise<boolean> {
+  const { data, error } = await db()
+    .from("reward_events")
+    .select("id")
+    .eq("telegram_id", telegramId)
+    .eq("event_key", key)
+    .maybeSingle();
+  if (error) throw new Error(`reward_events read: ${error.message}`);
+  return Boolean(data);
+}
+
+/** Count of the given reward_events keys the user holds. */
+export async function countEvents(telegramId: number, keys: string[]): Promise<number> {
+  const { data, error } = await db()
+    .from("reward_events")
+    .select("event_key")
+    .eq("telegram_id", telegramId)
+    .in("event_key", keys);
+  if (error) throw new Error(`reward_events read: ${error.message}`);
+  return new Set(((data ?? []) as { event_key: string }[]).map((r) => r.event_key)).size;
+}
+
+/** Most recent reward_events row whose key starts with `prefix`. */
+export async function lastEvent(
+  telegramId: number,
+  prefix: string,
+): Promise<{ id: string; created_at: string } | null> {
+  const { data, error } = await db()
+    .from("reward_events")
+    .select("id, created_at")
+    .eq("telegram_id", telegramId)
+    .like("event_key", `${prefix}%`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`reward_events read: ${error.message}`);
+  const row = (data as { id: string | number; created_at: string }[] | null)?.[0];
+  return row ? { id: String(row.id), created_at: row.created_at } : null;
+}
+
+/** Telegram getChatMember with the server-side bot token. */
+export async function isTelegramMember(chat: string, userId: number): Promise<boolean> {
+  const token = process.env["TELEGRAM_BOT_TOKEN"];
+  if (!token) return false;
+  const res = await fetch(
+    `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${encodeURIComponent(
+      chat,
+    )}&user_id=${userId}`,
+  );
+  const body = (await res.json()) as { ok?: boolean; result?: { status?: string } };
+  return (
+    body.ok === true &&
+    ["member", "administrator", "creator"].includes(body.result?.status ?? "")
+  );
+}
+
+/** Instagram follow verified by the Meta webhook flow. */
+export async function isInstagramVerified(userId: number, taskId: string): Promise<boolean> {
+  const { data } = await db()
+    .from("instagram_verifications")
+    .select("status")
+    .eq("telegram_user_id", userId)
+    .eq("task_id", taskId)
+    .maybeSingle();
+  return data?.status === "verified";
 }
 
 export function utcDay(nowMs = Date.now()): string {
