@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { AzoxUser } from "@/hooks/useUser";
 import type { DbUser } from "@/lib/azox-backend";
 import type { Rank } from "@/lib/azox-data";
+import type { RewardClaim } from "@/lib/rewards";
 
 export type AzoxState = {
   user: AzoxUser;
@@ -11,7 +12,7 @@ export type AzoxState = {
   nextRank: Rank | null;
   progress: number;
   level: number;
-  addPoints: (n: number) => void;
+  addPoints: (n: number, claim: RewardClaim) => void;
   tap: (fingers?: number) => number;
   completedTasks: Set<string>;
   completeTask: (id: string, fallbackPoints?: number, taskReward?: number) => void;

@@ -71,7 +71,7 @@ export function useGlobalButton() {
     window.localStorage.setItem(WINNERS_KEY, String(w + 1));
     setLastPress(s);
     setWinners(w + 1);
-    addPoints(REWARD);
+    addPoints(REWARD, { type: "global_button" });
     haptic("medium");
     window.setTimeout(() => {
       pressing.current = false;

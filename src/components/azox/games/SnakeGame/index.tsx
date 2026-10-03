@@ -16,7 +16,7 @@ export default function SnakeGame() {
   const finalScoreRef = useRef(0);
 
   const game = useSnakeLogic((score) => {
-    if (score > 0) addPoints(score);
+    if (score > 0) addPoints(score, { type: "game_score", gameId: "snake", score });
     finalScoreRef.current = score;
   });
 

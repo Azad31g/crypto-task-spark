@@ -91,7 +91,8 @@ export function useClickerFrenzy() {
       setBest({ taps: read(K.bestTaps), points: read(K.bestPoints) });
       setNewRecord(beat && finalPoints > 0);
       setOver(true);
-      if (finalPoints > 0) addPoints(finalPoints);
+      if (finalPoints > 0)
+        addPoints(finalPoints, { type: "clicker_round", taps: finalTaps });
       haptic("medium");
     },
     [addPoints],

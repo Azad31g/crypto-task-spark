@@ -1,5 +1,21 @@
 import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
-import { getStartParam, getTelegramUser } from "@/lib/telegram";
+import { getTelegramUser, getWebApp } from "@/lib/telegram";
+import type { RewardClaim, ScoreGame, TaskUnitKind } from "@/lib/rewards";
+import {
+  claimReward as claimRewardFn,
+  globalButtonPress as globalButtonPressFn,
+  recordTask as recordTaskFn,
+  recordTaskUnits as recordTaskUnitsFn,
+  registerAirdropWallet as registerAirdropWalletFn,
+  submitGameScore as submitGameScoreFn,
+  syncTasksDone as syncTasksDoneFn,
+  syncUser as syncUserFn,
+} from "@/lib/azox-secure.functions";
+
+/** Raw signed Telegram initData — the only identity sent for writes. */
+export function rawInitData(): string | null {
+  return getWebApp()?.initData || null;
+}
 
 /** The external project's user tables are not in the generated types. */
 const db = supabase as unknown as {
@@ -34,34 +50,19 @@ export function currentTelegramId(): number | null {
   return tg?.id ?? null;
 }
 
-/** Upserts the Telegram user then returns the fresh row. Null outside Telegram. */
+/** Upserts the verified Telegram user on the server, then returns the row. */
 export async function syncTelegramUser(): Promise<DbUser | null> {
-  console.log("[azox-backend] Supabase URL:", (supabase as any).supabaseUrl ?? "unknown");
   const tg = getTelegramUser();
-  console.log("[azox-backend] tg user from Telegram:", tg);
   if (!tg) return null;
-  const base = {
-    p_telegram_id: tg.id,
-    p_username: tg.username ?? null,
-    p_first_name: tg.first_name ?? null,
-    p_last_name: tg.last_name ?? null,
-    p_referral_code: getStartParam() || null,
-  };
-  try {
-    // Preferred: the overload that also stores the Telegram avatar.
-    let { data: rpcData, error: rpcError } = await db.rpc("upsert_user", {
-      ...base,
-      p_photo_url: tg.photo_url ?? null,
-    });
-    if (rpcError) {
-      // Older database without the p_photo_url overload — retry without it.
-      console.warn("[azox-backend] upsert_user with photo_url failed:", rpcError);
-      ({ data: rpcData, error: rpcError } = await db.rpc("upsert_user", base));
+  const initData = rawInitData();
+  if (initData) {
+    try {
+      const res = await syncUserFn({ data: { initData } });
+      if (res.ok) return res.user as unknown as DbUser;
+      console.warn("[azox-backend] syncUser rejected:", res.error);
+    } catch (e) {
+      console.error("[azox-backend] syncUser failed", e);
     }
-    if (rpcError) console.error("[azox-backend] upsert_user RPC error:", rpcError);
-    else console.log("[azox-backend] upsert_user success:", rpcData);
-  } catch (e) {
-    console.error("[azox-backend] upsert_user failed", e);
   }
   return fetchUser(tg.id);
 }
@@ -81,26 +82,28 @@ export async function fetchUser(telegramId: number): Promise<DbUser | null> {
   }
 }
 
-/** Adds points server-side; returns the authoritative total when available. */
-export async function addPointsRemote(amount: number): Promise<number | null> {
-  const telegramId = currentTelegramId();
-  if (!telegramId || amount === 0) return null;
+/**
+ * Asks the server to pay a reward. The server decides the amount for fixed
+ * rewards; returns the authoritative total when available.
+ */
+export async function claimRewardRemote(claim: RewardClaim): Promise<number | null> {
+  if (claim.type === "none") return null;
+  const initData = rawInitData();
+  if (!initData) return null;
   try {
-    const { data, error } = await db.rpc("add_points", {
-      p_telegram_id: telegramId,
-      p_points: amount,
-    });
-    if (error) throw error;
-    if (typeof data === "number") return data;
-    if (data && typeof data === "object" && typeof data.points === "number") {
-      return data.points as number;
-    }
-    const user = await fetchUser(telegramId);
-    return user?.points ?? null;
+    const res =
+      claim.type === "global_button"
+        ? await globalButtonPressFn({ data: { initData } })
+        : await claimRewardFn({ data: { initData, claim } });
+    if (res.ok) return res.points;
+    console.warn("[azox-backend] reward rejected:", claim.type, res.error);
   } catch (e) {
-    console.error("[azox-backend] add_points failed", e);
-    return null;
+    console.error("[azox-backend] reward failed", e);
   }
+  const id = currentTelegramId();
+  if (!id) return null;
+  const user = await fetchUser(id);
+  return user?.points ?? null;
 }
 
 /** True number of unique tasks completed by a user (source of truth). */
@@ -143,124 +146,68 @@ export async function fetchAllTaskCounts(): Promise<Map<number, number>> {
   return counts;
 }
 
-/**
- * Records a completed task exactly once (telegram_id + task_id), then mirrors
- * the real user_tasks count into users.tasks_done.
- */
-export async function recordTaskCompletion(
-  taskId: string,
-  points = 0,
-): Promise<void> {
-  const telegramId = currentTelegramId();
-  if (!telegramId) return;
+/** Records a social task (and its bonus task units) on the server. */
+export async function recordTaskCompletion(taskId: string): Promise<void> {
+  const initData = rawInitData();
+  if (!initData) return;
   try {
-    const { data: existing } = await db
-      .from("user_tasks")
-      .select("task_id")
-      .eq("telegram_id", telegramId)
-      .eq("task_id", taskId)
-      .maybeSingle();
-
-    if (!existing) {
-      await db
-        .from("user_tasks")
-        .upsert(
-          { telegram_id: telegramId, task_id: taskId },
-          { onConflict: "telegram_id,task_id" },
-        );
-    }
-
-    const realCount = await fetchTaskCount(telegramId);
-    await db
-      .from("users")
-      .update({ tasks_done: realCount })
-      .eq("telegram_id", telegramId);
+    const res = await recordTaskFn({ data: { initData, taskId } });
+    if (!res.ok) console.warn("[azox-backend] recordTask rejected:", res.error);
   } catch (e) {
     console.error("[azox-backend] recordTaskCompletion failed", e);
   }
-  if (points > 0) await addPointsRemote(points);
 }
 
-/**
- * Records N task units under one logical achievement (baseId), idempotently.
- * Each unit is a distinct row in user_tasks, so the real count stays truthful
- * and a repeated award for the same achievement never double-counts.
- */
-export async function recordTaskUnits(
-  baseId: string,
-  units: number,
-): Promise<number> {
-  const telegramId = currentTelegramId();
-  if (!telegramId || units <= 0) return 0;
-  const ids = Array.from({ length: units }, (_, i) =>
-    i === 0 ? baseId : `${baseId}#${i + 1}`,
-  );
+/** Game achievement task units; the server decides ids and unit counts. */
+export async function recordTaskUnits(kind: TaskUnitKind): Promise<number> {
+  const initData = rawInitData();
+  if (!initData) return 0;
   try {
-    const { data: existing } = await db
-      .from("user_tasks")
-      .select("task_id")
-      .eq("telegram_id", telegramId)
-      .in("task_id", ids);
-    const have = new Set(
-      ((existing ?? []) as { task_id: string }[]).map((r) => r.task_id),
-    );
-    const missing = ids.filter((id) => !have.has(id));
-    if (missing.length) {
-      await db.from("user_tasks").upsert(
-        missing.map((task_id) => ({ telegram_id: telegramId, task_id })),
-        { onConflict: "telegram_id,task_id" },
-      );
-    }
-    const realCount = await fetchTaskCount(telegramId);
-    await db
-      .from("users")
-      .update({ tasks_done: realCount })
-      .eq("telegram_id", telegramId);
-    return missing.length;
+    const res = await recordTaskUnitsFn({ data: { initData, kind } });
+    if (res.ok) return res.added;
+    console.warn("[azox-backend] recordTaskUnits rejected:", res.error);
   } catch (e) {
     console.error("[azox-backend] recordTaskUnits failed", e);
-    return 0;
   }
+  return 0;
 }
 
-/** Re-syncs users.tasks_done from the real user_tasks rows. */
+/** Re-syncs users.tasks_done on the server from the real user_tasks rows. */
 export async function syncTasksDone(): Promise<number> {
   const telegramId = currentTelegramId();
   if (!telegramId) return 0;
-  const realCount = await fetchTaskCount(telegramId);
-  try {
-    await db
-      .from("users")
-      .update({ tasks_done: realCount })
-      .eq("telegram_id", telegramId);
-  } catch (e) {
-    console.error("[azox-backend] syncTasksDone failed", e);
+  const initData = rawInitData();
+  if (initData) {
+    try {
+      const res = await syncTasksDoneFn({ data: { initData } });
+      if (res.ok) return res.tasksDone;
+    } catch (e) {
+      console.error("[azox-backend] syncTasksDone failed", e);
+    }
   }
-  return realCount;
+  return fetchTaskCount(telegramId);
 }
 
 
 
-/** Saves a game score (one row per game per user). */
-export async function saveGameScore(
-  gameId: string,
+/**
+ * Submits a score for the global best. Returns task units earned (10 only
+ * when the server stored a new world record).
+ */
+export async function submitGameScoreRemote(
+  gameId: ScoreGame,
   score: number,
-): Promise<void> {
-  const telegramId = currentTelegramId();
-  if (!telegramId || !Number.isFinite(score)) return;
+): Promise<number> {
+  const initData = rawInitData();
+  if (!initData || !Number.isInteger(score) || score <= 0) return 0;
   try {
-    await db.from("game_scores").upsert(
-      {
-        telegram_id: telegramId,
-        game_id: gameId,
-        score,
-        is_best: true,
-      },
-      { onConflict: "telegram_id,game_id" },
-    );
+    const res = await submitGameScoreFn({ data: { initData, gameId, score } });
+    if (res.ok) return res.earnedTasks;
+    console.warn("[azox-backend] submitGameScore rejected:", res.error);
   } catch (e) {
-    console.error("[azox-backend] saveGameScore failed", e);
+    console.error("[azox-backend] submitGameScore failed", e);
   }
+  return 0;
 }
 
 export type LeaderboardRow = {
@@ -313,24 +260,11 @@ export type ReferredUser = {
 };
 
 /**
- * Attributes the current Telegram user to the owner of `code`.
- * The database enforces one-time attribution and the single +1000 reward.
- * Returns true only when a brand-new referral was recorded.
+ * No-op: referral attribution (+1000 to the referrer) happens inside the
+ * server-side upsert_user call when the user row is first created.
  */
-export async function registerReferral(code: string | null): Promise<boolean> {
-  const telegramId = currentTelegramId();
-  if (!telegramId || !code) return false;
-  try {
-    const { data, error } = await db.rpc("register_referral", {
-      p_referred_id: telegramId,
-      p_referral_code: code,
-    });
-    if (error) throw error;
-    return data === true;
-  } catch (e) {
-    console.error("[azox-backend] register_referral failed", e);
-    return false;
-  }
+export async function registerReferral(_code: string | null): Promise<boolean> {
+  return false;
 }
 
 /** Users who joined through this user's referral link. */
@@ -376,37 +310,22 @@ export async function fetchWalletRegistration(
   }
 }
 
-/** Saves a first-time registration and flags the user as airdrop registered. */
+/**
+ * Server verifies the payment on chain 46630, then saves the first
+ * registration and flags the user as airdrop registered.
+ */
 export async function saveWalletRegistration(params: {
-  telegramId: number;
   walletAddress: string;
-  chainId: number;
   txHash: string;
 }): Promise<WalletRegistration | null> {
+  const initData = rawInitData();
+  if (!initData) return null;
   try {
-    const existing = await fetchWalletRegistration(params.telegramId);
-    if (existing) return existing;
-
-    const { error } = await db.from("wallet_registrations").insert({
-      telegram_id: params.telegramId,
-      wallet_address: params.walletAddress,
-      chain_id: params.chainId,
-      registration_fee: "0.0006",
-      payment_tx_hash: params.txHash,
-      payment_status: "confirmed",
-      is_current: true,
-    });
-    if (error) throw error;
-
-    const { error: userError } = await db
-      .from("users")
-      .update({ airdrop_registered: true })
-      .eq("telegram_id", params.telegramId);
-    if (userError) console.error("[azox-backend] airdrop_registered update failed", userError);
-
-    return await fetchWalletRegistration(params.telegramId);
+    const res = await registerAirdropWalletFn({ data: { initData, ...params } });
+    if (res.ok) return (res.registration as WalletRegistration | null) ?? null;
+    console.warn("[azox-backend] registerAirdropWallet rejected:", res.error);
   } catch (e) {
     console.error("[azox-backend] saveWalletRegistration failed", e);
-    return null;
   }
+  return null;
 }

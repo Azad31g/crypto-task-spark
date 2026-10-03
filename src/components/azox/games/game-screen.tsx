@@ -161,7 +161,7 @@ function BoxGame() {
     setReward(null);
     window.setTimeout(() => {
       const value = [25, 50, 75, 120, 250][Math.floor(Math.random() * 5)]!;
-      addPoints(value);
+      addPoints(value, { type: "none" });
       setReward(value);
       setOpening(false);
       haptic("medium");
@@ -208,7 +208,7 @@ function GlobalButtonGame() {
         <Button
           disabled={left > 3}
           onClick={() => {
-            addPoints(500);
+            addPoints(500, { type: "none" });
             setWon(true);
           }}
           className="h-16 w-40 rounded-2xl text-base font-bold"
@@ -248,7 +248,7 @@ function QuestionDayGame() {
   const choose = (i: number) => {
     if (picked !== null) return;
     setPicked(i);
-    if (i === question.answer) addPoints(100);
+    if (i === question.answer) addPoints(100, { type: "none" });
   };
 
   return (
@@ -301,7 +301,7 @@ function VideoAdsGame() {
     if (watching) return;
     setWatching(true);
     window.setTimeout(() => {
-      addPoints(75);
+      addPoints(75, { type: "none" });
       setWatching(false);
       setDone(true);
     }, 2000);

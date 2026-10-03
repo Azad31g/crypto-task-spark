@@ -256,7 +256,7 @@ export function useAzoxWord() {
         setCorrectCount(nextCorrect);
         window.localStorage.setItem(K.todayScore, String(nextScore));
         window.localStorage.setItem(K.todayCorrect, String(nextCorrect));
-        addPoints(POINTS_PER_WORD);
+        addPoints(POINTS_PER_WORD, { type: "word_correct", index });
         setPhase("correct");
       } else {
         haptic();
@@ -268,7 +268,7 @@ export function useAzoxWord() {
         }, 500);
       }
     },
-    [current, score, correctCount, addPoints],
+    [current, score, correctCount, addPoints, index],
   );
 
   const pickLetter = useCallback(
