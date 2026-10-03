@@ -1,13 +1,52 @@
 // TEMPORARY diagnostics for the Telegram Android session-settlement bug.
 // Read-only: observes AppKit / WalletConnect / Wagmi state, never changes it.
-// Logs only non-sensitive data (no URIs, keys, signatures, tokens).
-// Remove once the root case (A/B/C) is identified.
+// Logs only safe metadata: no URIs, keys, symKeys, signatures or tokens.
+// Topics are reduced to short fingerprints. The log persists across page
+// instances (localStorage) so a Telegram reload/new WebView can be correlated
+// with the attempt that started before the user left for the wallet.
 import { useEffect, useState } from "react";
 import { getAccount, getConnections, watchAccount, type Config } from "@wagmi/core";
 
 const PREFIX = "[AZOX-WALLET-DEBUG]";
-const lines: string[] = [];
+const STORE_KEY = "azox.walletDebug.log";
+const ATTEMPT_KEY = "azox.walletDebug.attempt";
+const MAX = 600;
+
+const pageInstanceId = Math.random().toString(36).slice(2, 7);
+const t0 = Date.now();
+const lines: string[] = loadLines();
 const subs = new Set<() => void>();
+
+function loadLines(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY) ?? "[]") as string[];
+  } catch {
+    return [];
+  }
+}
+
+function currentAttempt(): string {
+  try {
+    return localStorage.getItem(ATTEMPT_KEY) ?? "-";
+  } catch {
+    return "-";
+  }
+}
+
+function newAttempt(): string {
+  const id = "A" + Date.now().toString(36).slice(-5);
+  try {
+    localStorage.setItem(ATTEMPT_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  return id;
+}
+
+/** Short, non-reversible fingerprint of a topic. */
+function fp(topic?: string | null) {
+  return topic ? topic.slice(0, 6) : null;
+}
 
 export function dbg(msg: string, data?: unknown) {
   let s = "";
@@ -16,34 +55,71 @@ export function dbg(msg: string, data?: unknown) {
   } catch {
     s = " [unserializable]";
   }
-  const line = `${new Date().toISOString().slice(11, 23)} ${msg}${s}`;
+  const line = `${new Date().toISOString().slice(11, 23)} +${Date.now() - t0}ms [att=${currentAttempt()} pg=${pageInstanceId}] ${msg}${s}`;
   console.log(PREFIX, line);
   lines.push(line);
-  if (lines.length > 300) lines.shift();
+  while (lines.length > MAX) lines.shift();
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(lines));
+  } catch {
+    /* ignore */
+  }
   subs.forEach((f) => f());
 }
 
 type WcSession = {
   topic?: string;
+  pairingTopic?: string;
+  expiry?: number;
+  acknowledged?: boolean;
   namespaces?: Record<string, { accounts?: string[]; chains?: string[] }>;
   peer?: { metadata?: { name?: string } };
 };
-type UP = {
-  session?: WcSession;
-  on: (e: string, cb: (...a: unknown[]) => void) => void;
+type Emitter = { on: (e: string, cb: (...a: unknown[]) => void) => void };
+type SignClient = Emitter & {
+  session?: { getAll?: () => WcSession[] };
+  proposal?: { getAll?: () => { id?: number; pairingTopic?: string; expiryTimestamp?: number }[] };
+  core?: {
+    relayer?: Emitter & { connected?: boolean; connecting?: boolean };
+    pairing?: {
+      getPairings?: () => { topic?: string; active?: boolean; expiry?: number; peerMetadata?: { name?: string } }[];
+      events?: Emitter;
+    };
+  };
 };
+type UP = Emitter & { session?: WcSession; client?: SignClient };
 
 function sessionSummary(s?: WcSession) {
   if (!s) return null;
   return {
-    topic: s.topic ? s.topic.slice(0, 8) + "…" : null,
+    topic: fp(s.topic),
+    pairing: fp(s.pairingTopic),
+    acknowledged: s.acknowledged ?? null,
+    expiry: s.expiry ?? null,
     peer: s.peer?.metadata?.name ?? null,
     namespaces: Object.fromEntries(
-      Object.entries(s.namespaces ?? {}).map(([k, v]) => [
-        k,
-        { accounts: v.accounts, chains: v.chains },
-      ]),
+      Object.entries(s.namespaces ?? {}).map(([k, v]) => [k, { accounts: v.accounts, chains: v.chains }]),
     ),
+  };
+}
+
+function wcState(p?: UP) {
+  const c = p?.client;
+  return {
+    providerSession: sessionSummary(p?.session),
+    relay: { connected: c?.core?.relayer?.connected ?? null, connecting: c?.core?.relayer?.connecting ?? null },
+    pairings: (c?.core?.pairing?.getPairings?.() ?? []).map((x) => ({
+      topic: fp(x.topic),
+      active: x.active ?? null,
+      expiry: x.expiry ?? null,
+      peer: x.peerMetadata?.name ?? null,
+    })),
+    proposals: (c?.proposal?.getAll?.() ?? []).map((x) => ({
+      id: x.id ?? null,
+      pairing: fp(x.pairingTopic),
+      expiry: x.expiryTimestamp ?? null,
+    })),
+    sessions: (c?.session?.getAll?.() ?? []).map(sessionSummary),
   };
 }
 
@@ -55,26 +131,25 @@ function wagmiSummary(config: Config) {
     address: a.address ?? null,
     chainId: a.chainId ?? null,
     connector: a.connector?.id ?? null,
-    connections: getConnections(config).map((c) => ({
-      id: c.connector.id,
-      accounts: c.accounts,
-      chainId: c.chainId,
-    })),
+    connections: getConnections(config).map((c) => ({ id: c.connector.id, chainId: c.chainId })),
   };
 }
 
-function storageSnapshot() {
+function storageMarkers() {
   const out: Record<string, string> = {};
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i)!;
       if (
         /wagmi|walletConnect|@appkit|recentConnector|requestedChains|connected/i.test(k) &&
-        !/wc@2:core|keychain|crypto/i.test(k)
+        !/wc@2:core|keychain|crypto|azox\.walletDebug/i.test(k)
       ) {
-        out[k] = String(localStorage.getItem(k)).slice(0, 120);
+        out[k] = String(localStorage.getItem(k)).slice(0, 80);
       }
     }
+    out["wcSessionKey"] = String(
+      Object.keys(localStorage).some((k) => k.includes("wc@2:client") && k.includes("session")),
+    );
   } catch (e) {
     out["localStorage"] = "unavailable: " + String(e);
   }
@@ -83,9 +158,6 @@ function storageSnapshot() {
     .map((c) => c.split("=")[0]!.trim())
     .filter((k) => /wagmi|walletConnect|recentConnector/i.test(k))
     .join(",");
-  out["wcSessionKeyPresent"] = String(
-    Object.keys(localStorage).some((k) => k.includes("wc@2:client") && k.includes("session")),
-  );
   return out;
 }
 
@@ -97,32 +169,56 @@ export function startWalletDebug(
   const tg = (
     window as unknown as { Telegram?: { WebApp?: { platform?: string; version?: string } } }
   ).Telegram?.WebApp;
-  dbg("boot", {
-    href: location.pathname + location.search.slice(0, 40),
+  dbg("page.boot", {
+    path: location.pathname,
     tgPlatform: tg?.platform ?? null,
     tgVersion: tg?.version ?? null,
     navType:
       (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined)
         ?.type ?? null,
+    visibility: document.visibilityState,
   });
-  dbg("storage@boot", storageSnapshot());
+  dbg("storage@boot", storageMarkers());
   dbg("wagmi@boot", wagmiSummary(config));
 
-  watchAccount(config, { onChange: () => dbg("wagmi.change", wagmiSummary(config)) });
+  watchAccount(config, { onChange: () => dbg("wagmi.account", wagmiSummary(config)) });
+  // Wagmi connect()/reconnect lifecycle: connecting → connected (resolve) or
+  // connecting → disconnected (reject).
+  let prev = config.state.status;
   config.subscribe(
     (s) => s.status,
-    (st) => dbg("wagmi.status", st),
+    (st) => {
+      const outcome =
+        prev === "connecting" && st === "connected"
+          ? "connect.resolved"
+          : prev === "connecting" && st === "disconnected"
+            ? "connect.rejected"
+            : prev === "reconnecting" && st === "connected"
+              ? "reconnect.resolved"
+              : prev === "reconnecting" && st === "disconnected"
+                ? "reconnect.rejected"
+                : "transition";
+      dbg("wagmi.status", { from: prev, to: st, outcome });
+      prev = st;
+    },
   );
+  config.emitter?.on?.("message", (m: { type?: string }) => {
+    if (m?.type === "display_uri") dbg("wagmi.emitter.display_uri");
+  });
 
-  for (const ev of ["visibilitychange", "pageshow", "pagehide", "focus"] as const) {
-    window.addEventListener(ev, () => {
-      dbg(`lifecycle.${ev}`, { visibility: document.visibilityState });
-      if (ev !== "pagehide") {
-        void appKit
-          .getUniversalProvider?.()
-          .then((p) => dbg("wc.session@" + ev, sessionSummary((p as UP | undefined)?.session)));
-        dbg("wagmi@" + ev, wagmiSummary(config));
-      }
+  let up: UP | undefined;
+  const snapshot = (tag: string) => {
+    dbg("wc.state@" + tag, wcState(up));
+    dbg("wagmi@" + tag, wagmiSummary(config));
+  };
+
+  for (const ev of ["visibilitychange", "pageshow", "pagehide", "focus", "blur"] as const) {
+    window.addEventListener(ev, (e) => {
+      dbg(`lifecycle.${ev}`, {
+        visibility: document.visibilityState,
+        persisted: (e as PageTransitionEvent).persisted ?? null,
+      });
+      if (ev !== "pagehide" && ev !== "blur") snapshot(ev);
     });
   }
 
@@ -130,27 +226,43 @@ export function startWalletDebug(
   void ready
     .then(async () => {
       dbg("appkit.ready");
-      const p = (await appKit.getUniversalProvider?.()) as UP | undefined;
-      dbg("wc.provider", { available: Boolean(p) });
-      if (!p) return;
-      dbg("wc.session@ready", sessionSummary(p.session));
-      dbg("wagmi@ready", wagmiSummary(config));
-      dbg(
-        "connectors",
-        config.connectors.map((c) => c.id),
-      );
+      up = (await appKit.getUniversalProvider?.()) as UP | undefined;
+      dbg("wc.provider", { available: Boolean(up), hasClient: Boolean(up?.client) });
+      if (!up) return;
+      snapshot("ready");
+      dbg("connectors", config.connectors.map((c) => c.id));
+
+      for (const ev of ["connect", "session_update", "session_event", "session_delete", "disconnect"]) {
+        up.on(ev, () => {
+          dbg("up.event." + ev);
+          snapshot("up." + ev);
+        });
+      }
+      up.on("display_uri", () => {
+        const id = newAttempt();
+        dbg("up.event.display_uri (new attempt)", { attemptId: id });
+        snapshot("display_uri");
+      });
+
+      const c = up.client;
       for (const ev of [
-        "connect",
+        "session_proposal",
         "session_update",
+        "session_extend",
         "session_event",
         "session_delete",
-        "disconnect",
-        "display_uri",
+        "session_expire",
+        "proposal_expire",
       ]) {
-        p.on(ev, () => {
-          dbg("wc.event." + ev, ev === "display_uri" ? undefined : sessionSummary(p.session));
-          setTimeout(() => dbg(`wagmi+1s after ${ev}`, wagmiSummary(config)), 1000);
-        });
+        c?.on?.(ev, () => dbg("sign.event." + ev));
+      }
+      for (const ev of ["relayer_connect", "relayer_disconnect", "relayer_error"]) {
+        c?.core?.relayer?.on?.(ev, () =>
+          dbg("relay." + ev, { connected: c?.core?.relayer?.connected ?? null }),
+        );
+      }
+      for (const ev of ["pairing_create", "pairing_delete", "pairing_expire", "pairing_ping"]) {
+        c?.core?.pairing?.events?.on?.(ev, () => dbg("pairing." + ev));
       }
     })
     .catch((e) => dbg("appkit.ready.error", String(e)));
@@ -175,13 +287,30 @@ export function WalletDebugPanel() {
       </button>
       {open && (
         <div className="mt-1 w-[92vw] max-w-md rounded border bg-background p-2 text-foreground">
-          <button
-            type="button"
-            className="mb-1 rounded bg-primary px-2 py-1 text-primary-foreground"
-            onClick={() => void navigator.clipboard?.writeText(lines.join("\n"))}
-          >
-            Copy log
-          </button>
+          <div className="mb-1 flex gap-2">
+            <button
+              type="button"
+              className="rounded bg-primary px-2 py-1 text-primary-foreground"
+              onClick={() => void navigator.clipboard?.writeText(lines.join("\n"))}
+            >
+              Copy log
+            </button>
+            <button
+              type="button"
+              className="rounded bg-muted px-2 py-1 text-foreground"
+              onClick={() => {
+                lines.length = 0;
+                try {
+                  localStorage.removeItem(STORE_KEY);
+                } catch {
+                  /* ignore */
+                }
+                force((n) => n + 1);
+              }}
+            >
+              Clear
+            </button>
+          </div>
           <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all">
             {lines.join("\n")}
           </pre>
