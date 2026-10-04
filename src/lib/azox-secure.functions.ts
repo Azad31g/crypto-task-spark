@@ -147,6 +147,11 @@ export const syncUser = createServerFn({ method: "POST" })
 
 const claimSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tap"), fingers: z.number().int().min(1).max(TAP_MAX_FINGERS) }),
+  z.object({
+    type: z.literal("tap_batch"),
+    batchId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+    tapUnits: z.number().int().min(1).max(20_000),
+  }),
   z.object({ type: z.literal("social_task"), taskId }),
   z.object({ type: z.literal("daily_gift") }),
   z.object({
@@ -187,6 +192,11 @@ export const claimReward = createServerFn({ method: "POST" })
           const per = rankForPoints(await h.currentPoints(id)).pointsPerFinger;
           const r = await h.grantPoints(id, c.fingers * per);
           return { ok: true as const, granted: true, points: r.points, rank: r.rank };
+        }
+        case "tap_batch": {
+          // Amount from the server's own points/rank; idempotent per batchId.
+          const per = rankForPoints(await h.currentPoints(id)).pointsPerFinger;
+          return once(`tap-batch-${c.batchId}`, c.tapUnits * per);
         }
         case "game_score": {
           const r = await h.grantPoints(id, c.score);

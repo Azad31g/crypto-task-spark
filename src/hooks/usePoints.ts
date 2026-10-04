@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   STORAGE_KEYS,
   levelForPoints,
@@ -8,12 +8,53 @@ import {
   readStorage,
   writeStorage,
 } from "@/lib/points";
-import { claimRewardRemote, currentTelegramId, fetchUser } from "@/lib/azox-backend";
+import {
+  claimRewardRemote,
+  currentTelegramId,
+  fetchUser,
+  submitTapBatch,
+} from "@/lib/azox-backend";
+import {
+  TAP_BATCH_INTERVAL_MS,
+  TAP_BATCH_STORAGE_KEY,
+  addTaps,
+  confirmBatch,
+  parseTapState,
+  takeBatch,
+  type TapBatchState,
+} from "@/lib/tap-batch";
 import type { RewardClaim } from "@/lib/rewards";
 
 type PointsState = { points: number; taps: number; globalWins: number };
 
 const DEFAULT: PointsState = { points: 0, taps: 0, globalWins: 0 };
+
+const readTaps = (): TapBatchState => parseTapState(readStorage(TAP_BATCH_STORAGE_KEY, null));
+const writeTaps = (s: TapBatchState) => writeStorage(TAP_BATCH_STORAGE_KEY, s);
+
+/** One flush at a time per client (module-level guard). */
+let tapFlushInFlight = false;
+
+/**
+ * Sends the in-flight batch (or cuts a new one from pending). The batch is
+ * only cleared after the server confirms it; failures keep it for retry
+ * with the same id, so a lost response can never be paid twice.
+ */
+async function flushTaps(): Promise<number | null> {
+  if (tapFlushInFlight) return null;
+  const { state, batch } = takeBatch(readTaps());
+  if (!batch) return null;
+  writeTaps(state);
+  tapFlushInFlight = true;
+  try {
+    const total = await submitTapBatch(batch.id, batch.units);
+    if (total === null) return null;
+    writeTaps(confirmBatch(readTaps(), batch.id));
+    return total;
+  } finally {
+    tapFlushInFlight = false;
+  }
+}
 
 export function usePoints() {
   const [state, setState] = useState<PointsState>(DEFAULT);
@@ -34,7 +75,12 @@ export function usePoints() {
     let cancelled = false;
     void fetchUser(telegramId).then((row) => {
       if (cancelled || !row || typeof row.points !== "number") return;
-      setState((prev) => ({ ...prev, points: row.points }));
+      const t = readTaps();
+      const unsent = t.pending + (t.inflight?.units ?? 0);
+      setState((prev) => ({
+        ...prev,
+        points: row.points + unsent * rankForPoints(row.points).pointsPerFinger,
+      }));
     });
     return () => {
       cancelled = true;
@@ -65,18 +111,50 @@ export function usePoints() {
     setState((prev) => ({ ...prev, globalWins: prev.globalWins + 1 }));
   }, []);
 
+  const pprRef = useRef(1);
+
+  // Main Tap batching: one request at most every 10 minutes, plus a
+  // best-effort flush when the page is hidden or left.
+  useEffect(() => {
+    if (!currentTelegramId()) return;
+    const run = () => {
+      void flushTaps().then((total) => {
+        if (typeof total !== "number") return;
+        // Keep unsent local taps visible on top of the server total.
+        const t = readTaps();
+        const unsent = t.pending + (t.inflight?.units ?? 0);
+        setState((prev) => ({ ...prev, points: total + unsent * pprRef.current }));
+      });
+    };
+    const timer = window.setInterval(run, TAP_BATCH_INTERVAL_MS);
+    const onHide = () => {
+      if (document.visibilityState === "hidden") run();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", run);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", run);
+    };
+  }, []);
+
   const reset = useCallback(() => setState(DEFAULT), []);
 
   const rank = useMemo(() => rankForPoints(state.points), [state.points]);
+  pprRef.current = rank.pointsPerFinger;
 
   /** Points earned for a tap with `fingers` fingers at the current rank. */
   const tap = useCallback(
     (fingers = 1) => {
+      const units = Math.min(10, Math.max(1, Math.floor(fingers)));
       const gained = Math.max(1, fingers) * rank.pointsPerFinger;
-      addPoints(gained, { type: "tap", fingers: Math.max(1, fingers) });
+      // Local only; the server pays via the periodic tap_batch.
+      setState((prev) => ({ ...prev, points: prev.points + gained, taps: prev.taps + 1 }));
+      writeTaps(addTaps(readTaps(), units));
       return gained;
     },
-    [addPoints, rank.pointsPerFinger],
+    [rank.pointsPerFinger],
   );
 
   return {
