@@ -232,7 +232,15 @@ export const completeDailyGame = createServerFn({ method: "POST" })
       .object({
         initData,
         game: z.enum(["word", "question"]),
-        indices: z.array(z.number().int().min(0).max(WORDS_PER_DAY - 1)).max(WORDS_PER_DAY),
+        indices: z
+          .array(
+            z
+              .number()
+              .int()
+              .min(0)
+              .max(WORDS_PER_DAY - 1),
+          )
+          .max(WORDS_PER_DAY),
       })
       .parse(d),
   )

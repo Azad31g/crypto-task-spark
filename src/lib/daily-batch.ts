@@ -4,15 +4,33 @@
 // LIMITATION: the browser still decides which answers were correct. The
 // server only bounds the indices, fixes the amounts, and pays each
 // day/index once (reward_events unique key via claim_reward).
-import { QUESTION_POINTS, QUESTIONS_PER_DAY, TASK_UNITS, WORD_POINTS, WORDS_PER_DAY } from "./rewards";
+import {
+  QUESTION_POINTS,
+  QUESTIONS_PER_DAY,
+  TASK_UNITS,
+  WORD_POINTS,
+  WORDS_PER_DAY,
+} from "./rewards";
 
 export type DailyGame = "word" | "question";
 
 export const DAILY_GAMES: Record<
   DailyGame,
-  { prefix: string; points: number; count: number; unitKind: "word_complete" | "question_complete"; unitBase: string }
+  {
+    prefix: string;
+    points: number;
+    count: number;
+    unitKind: "word_complete" | "question_complete";
+    unitBase: string;
+  }
 > = {
-  word: { prefix: "word", points: WORD_POINTS, count: WORDS_PER_DAY, unitKind: "word_complete", unitBase: "game-word-complete" },
+  word: {
+    prefix: "word",
+    points: WORD_POINTS,
+    count: WORDS_PER_DAY,
+    unitKind: "word_complete",
+    unitBase: "game-word-complete",
+  },
   question: {
     prefix: "question",
     points: QUESTION_POINTS,

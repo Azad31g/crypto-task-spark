@@ -8,11 +8,7 @@ import {
   readStorage,
   writeStorage,
 } from "@/lib/points";
-import {
-  claimRewardRemote,
-  currentTelegramId,
-  fetchUser,
-} from "@/lib/azox-backend";
+import { claimRewardRemote, currentTelegramId, fetchUser } from "@/lib/azox-backend";
 import type { RewardClaim } from "@/lib/rewards";
 
 type PointsState = { points: number; taps: number; globalWins: number };

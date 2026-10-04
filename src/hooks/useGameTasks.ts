@@ -81,8 +81,7 @@ export function useGameTasks() {
       let consecutive = true;
       for (let i = 1; i < last5.length; i++) {
         const diff =
-          (new Date(last5[i]!).getTime() - new Date(last5[i - 1]!).getTime()) /
-          86_400_000;
+          (new Date(last5[i]!).getTime() - new Date(last5[i - 1]!).getTime()) / 86_400_000;
         if (diff !== 1) {
           consecutive = false;
           break;
