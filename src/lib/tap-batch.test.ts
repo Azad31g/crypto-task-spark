@@ -47,7 +47,9 @@ describe("tap batching", () => {
 
   it("parses stored state safely", () => {
     expect(parseTapState(null)).toEqual(EMPTY_TAP_STATE);
-    expect(parseTapState({ pending: -2, inflight: { id: "x", units: 1 } })).toEqual(EMPTY_TAP_STATE);
+    expect(parseTapState({ pending: -2, inflight: { id: "x", units: 1 } })).toEqual(
+      EMPTY_TAP_STATE,
+    );
     expect(parseTapState({ pending: 3, inflight: { id: "abcdefgh1", units: 2 } })).toEqual({
       pending: 3,
       inflight: { id: "abcdefgh1", units: 2 },

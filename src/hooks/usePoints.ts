@@ -75,7 +75,12 @@ export function usePoints() {
     let cancelled = false;
     void fetchUser(telegramId).then((row) => {
       if (cancelled || !row || typeof row.points !== "number") return;
-      setState((prev) => ({ ...prev, points: row.points }));
+      const t = readTaps();
+      const unsent = t.pending + (t.inflight?.units ?? 0);
+      setState((prev) => ({
+        ...prev,
+        points: row.points + unsent * rankForPoints(row.points).pointsPerFinger,
+      }));
     });
     return () => {
       cancelled = true;

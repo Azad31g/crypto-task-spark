@@ -44,7 +44,11 @@ export function parseTapState(raw: unknown): TapBatchState {
   const pending = Number.isInteger(r?.pending) && r!.pending! > 0 ? r!.pending! : 0;
   const f = r?.inflight;
   const inflight =
-    f && typeof f.id === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(f.id) && Number.isInteger(f.units) && f.units > 0
+    f &&
+    typeof f.id === "string" &&
+    /^[A-Za-z0-9_-]{8,64}$/.test(f.id) &&
+    Number.isInteger(f.units) &&
+    f.units > 0
       ? { id: f.id, units: Math.min(f.units, TAP_BATCH_MAX_UNITS) }
       : null;
   return { pending, inflight };
