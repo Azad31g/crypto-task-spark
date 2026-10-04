@@ -11,7 +11,8 @@ export function useStories() {
   const refetch = useCallback(async () => {
     const request = ++generation.current;
     try {
-      const result = await fetchStories({ data: { initData: rawInitData() ?? undefined } });
+      const initData = rawInitData();
+      const result = await fetchStories({ data: initData ? { initData } : {} });
       if (request !== generation.current) return;
       setState({ ...result, stories: result.stories.filter((s) => Date.parse(s.expires_at) > Date.now()).map((s) => ({ ...s, seen: s.seen || locallySeen.current.has(s.id) })) });
     } catch { /* Keep viewing available after transient connection failures. */ }
