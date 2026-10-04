@@ -21,9 +21,8 @@ function today() {
 export function useGameTasks() {
   // AZOX Word — +2 Tasks when ALL 5 words answered correctly (once per day)
   const onWordComplete = useCallback((allCorrect: boolean) => {
-    if (!allCorrect) return 0;
-    void recordTaskUnits("word_complete");
-    return 2;
+    // Units are granted server-side by completeDailyGame (all 5 recorded).
+    return allCorrect ? 2 : 0;
   }, []);
 
   // AZOX Box — +1 Task when box opened successfully (once per box/day)
@@ -34,9 +33,8 @@ export function useGameTasks() {
 
   // Question Day — +2 Tasks when ALL questions answered correctly (once per day)
   const onQuestionComplete = useCallback((allCorrect: boolean) => {
-    if (!allCorrect) return 0;
-    void recordTaskUnits("question_complete");
-    return 2;
+    // Units are granted server-side by completeDailyGame (all 5 recorded).
+    return allCorrect ? 2 : 0;
   }, []);
 
   // Global Button — +1 Task each time successfully pressed
@@ -83,8 +81,7 @@ export function useGameTasks() {
       let consecutive = true;
       for (let i = 1; i < last5.length; i++) {
         const diff =
-          (new Date(last5[i]!).getTime() - new Date(last5[i - 1]!).getTime()) /
-          86_400_000;
+          (new Date(last5[i]!).getTime() - new Date(last5[i - 1]!).getTime()) / 86_400_000;
         if (diff !== 1) {
           consecutive = false;
           break;
