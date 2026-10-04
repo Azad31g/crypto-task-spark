@@ -14,8 +14,8 @@ const storyId = '7bd0193c-05e8-4a9c-8514-1ad52d5cbffc';
 function table(result: unknown) {
   const chain: Record<string, unknown> = {};
   for (const method of ['select', 'eq', 'gt', 'order', 'in', 'upsert', 'insert', 'delete']) chain[method] = vi.fn(() => chain);
-  chain.maybeSingle = vi.fn(async () => result);
-  chain.then = (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve);
+  chain['maybeSingle'] = vi.fn(async () => result);
+  chain['then'] = (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve);
   return chain;
 }
 describe('Stories validation and privacy', () => {
