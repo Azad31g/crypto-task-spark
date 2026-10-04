@@ -118,6 +118,25 @@ async function doClaimReward(claim: RewardClaim): Promise<number | null> {
   return user?.points ?? null;
 }
 
+/**
+ * Submits a Main Tap batch. Returns the authoritative total only when the
+ * server confirmed the batch (granted or already processed); null otherwise.
+ */
+export async function submitTapBatch(batchId: string, tapUnits: number): Promise<number | null> {
+  const initData = rawInitData();
+  if (!initData) return null;
+  try {
+    const res = await claimRewardFn({
+      data: { initData, claim: { type: "tap_batch", batchId, tapUnits } },
+    });
+    if (res.ok) return res.points;
+    console.warn("[azox-backend] tap batch rejected:", res.error);
+  } catch (e) {
+    console.error("[azox-backend] tap batch failed", e);
+  }
+  return null;
+}
+
 /** True number of unique tasks completed by a user (source of truth). */
 export async function fetchTaskCount(telegramId: number): Promise<number> {
   try {

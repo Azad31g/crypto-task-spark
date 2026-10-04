@@ -63,6 +63,8 @@ export const RANK_THRESHOLDS_PAYLOAD = RANKS.map(({ key, threshold }) => ({
  */
 export type RewardClaim =
   | { type: "tap"; fingers: number }
+  /** Main Tap batch: server computes points from its own rank lookup. */
+  | { type: "tap_batch"; batchId: string; tapUnits: number }
   | { type: "social_task"; taskId: string }
   | { type: "daily_gift" }
   | { type: "box_open"; session: number }
