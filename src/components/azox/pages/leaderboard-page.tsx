@@ -69,9 +69,7 @@ export function LeaderboardPage() {
     <div className="flex flex-col gap-5">
       <div>
         <h1 className="text-xl font-bold">Global Ranking</h1>
-        <p className="text-sm text-muted-foreground">
-          7 ranks, sorted by total points.
-        </p>
+        <p className="text-sm text-muted-foreground">7 ranks, sorted by total points.</p>
       </div>
 
       {/* Founder feature */}
@@ -79,25 +77,33 @@ export function LeaderboardPage() {
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
-            className={cn("relative size-12 shrink-0 rounded-full p-0 hover:bg-transparent disabled:opacity-100", stories.hasUnseen && "story-avatar-unseen")}
+            className={cn(
+              "relative size-12 shrink-0 rounded-full p-0 hover:bg-transparent disabled:opacity-100",
+              stories.hasUnseen && "story-avatar-unseen",
+            )}
             aria-label="Open founder stories"
             disabled={!stories.stories.length}
             onClick={() => setViewerOpen(true)}
           >
-          <Avatar className="size-12 border-2" style={{ borderColor: "#CCFF00" }}>
-            <img
-              src="/azox/azad-bashqali.jpg"
-              alt="Azad Bashqali"
-              className="absolute inset-0 size-full rounded-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
-            <AvatarFallback className="bg-primary/20 font-bold text-foreground">
-              AB
-            </AvatarFallback>
-          </Avatar>
-          {stories.hasUnseen && <span className="absolute -right-0.5 -top-0.5 size-3 rounded-full border-2 border-background bg-destructive" aria-label="Unseen stories" />}
+            <Avatar className="size-12 border-2" style={{ borderColor: "#CCFF00" }}>
+              <img
+                src="/azox/azad-bashqali.jpg"
+                alt="Azad Bashqali"
+                className="absolute inset-0 size-full rounded-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+              <AvatarFallback className="bg-primary/20 font-bold text-foreground">
+                AB
+              </AvatarFallback>
+            </Avatar>
+            {stories.hasUnseen && (
+              <span
+                className="absolute -right-0.5 -top-0.5 size-3 rounded-full border-2 border-background bg-destructive"
+                aria-label="Unseen stories"
+              />
+            )}
           </Button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
@@ -113,7 +119,8 @@ export function LeaderboardPage() {
             disabled={!stories.stories.length}
             onClick={() => setViewerOpen(true)}
           >
-            <CircleDashed strokeWidth={2} className="text-[#CCFF00]" aria-hidden="true" />Story
+            <CircleDashed strokeWidth={2} className="text-[#CCFF00]" aria-hidden="true" />
+            Story
             <ChevronRight className="text-white" aria-hidden="true" />
           </Button>
         </div>
@@ -132,7 +139,14 @@ export function LeaderboardPage() {
       </section>
 
       {viewerOpen && stories.stories.length > 0 && (
-        <StoryViewer stories={stories.stories} engagement={stories.engagement} isAdmin={stories.isAdmin} onClose={() => setViewerOpen(false)} onSeen={stories.markSeen} onLiked={stories.setLiked} />
+        <StoryViewer
+          stories={stories.stories}
+          engagement={stories.engagement}
+          isAdmin={stories.isAdmin}
+          onClose={() => setViewerOpen(false)}
+          onSeen={stories.markSeen}
+          onLiked={stories.setLiked}
+        />
       )}
 
       {/* Leaderboard type tabs */}
@@ -190,9 +204,7 @@ export function LeaderboardPage() {
                 {activeRank}
               </h2>
               <span className="text-[11px] text-muted-foreground">
-                {activeThreshold === 0
-                  ? "Starter"
-                  : `+${formatPoints(activeThreshold)}`}
+                {activeThreshold === 0 ? "Starter" : `+${formatPoints(activeThreshold)}`}
               </span>
             </div>
             <ul className="flex flex-col">
@@ -289,12 +301,7 @@ function LeaderboardRow({
         {position}
       </span>
       <Avatar className="size-9">
-        {photoUrl ? (
-          <AvatarImage
-            src={photoUrl}
-            alt={firstName ?? username ?? "User"}
-          />
-        ) : null}
+        {photoUrl ? <AvatarImage src={photoUrl} alt={firstName ?? username ?? "User"} /> : null}
         <AvatarFallback className="bg-secondary text-xs font-semibold">
           {(firstName?.[0] ?? username?.[0] ?? "?").toUpperCase()}
         </AvatarFallback>
