@@ -3,6 +3,7 @@ import { getTelegramUser, getWebApp } from "@/lib/telegram";
 import type { RewardClaim, ScoreGame, TaskUnitKind } from "@/lib/rewards";
 import {
   claimReward as claimRewardFn,
+  completeDailyGame as completeDailyGameFn,
   globalButtonPress as globalButtonPressFn,
   recordTask as recordTaskFn,
   recordTaskUnits as recordTaskUnitsFn,
@@ -101,7 +102,11 @@ async function doClaimReward(claim: RewardClaim): Promise<number | null> {
     const res =
       claim.type === "global_button"
         ? await globalButtonPressFn({ data: { initData } })
-        : await claimRewardFn({ data: { initData, claim } });
+        : claim.type === "daily_batch"
+          ? await completeDailyGameFn({
+              data: { initData, game: claim.game, indices: claim.indices },
+            })
+          : await claimRewardFn({ data: { initData, claim } });
     if (res.ok) return res.points;
     console.warn("[azox-backend] reward rejected:", claim.type, res.error);
   } catch (e) {

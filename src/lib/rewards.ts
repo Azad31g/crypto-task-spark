@@ -24,9 +24,7 @@ export const WORDS_PER_DAY = 5;
 
 export const QUESTION_POINTS = 100;
 /** Number of questions in the QuestionDay set (all must be answered correctly). */
-export const QUESTIONS_PER_DAY = 6;
-/** Upper bound on question index accepted per day (sanity cap only). */
-export const MAX_QUESTIONS_PER_DAY = 20;
+export const QUESTIONS_PER_DAY = 5;
 
 export const CLICKER_POINTS_PER_TAP = 8;
 export const CLICKER_ROUND_MS = 30 * 1000;
@@ -68,8 +66,8 @@ export type RewardClaim =
   | { type: "social_task"; taskId: string }
   | { type: "daily_gift" }
   | { type: "box_open"; session: number }
-  | { type: "word_correct"; index: number }
-  | { type: "question_correct"; index: number }
+  /** End-of-session batch for AZOX Word / Question Day (one request). */
+  | { type: "daily_batch"; game: "word" | "question"; indices: number[] }
   | { type: "clicker_round"; taps: number }
   | { type: "game_score"; gameId: ScoreGame; score: number }
   | { type: "global_button" }

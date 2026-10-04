@@ -13,14 +13,11 @@ import {
   GLOBAL_BUTTON_REWARD,
   GLOBAL_BUTTON_SLOT_MS,
   MAX_GAME_SCORE,
-  MAX_QUESTIONS_PER_DAY,
-  QUESTION_POINTS,
   QUESTIONS_PER_DAY,
   SCORE_GAMES,
   TAP_MAX_FINGERS,
   TASK_UNITS,
   WORDS_PER_DAY,
-  WORD_POINTS,
 } from "./rewards";
 import { SOCIAL_TASKS } from "./social-tasks";
 import { AZOX_AIRDROP_ABI, AZOX_AIRDROP_ADDRESS, REGISTRATION_FEE } from "./contracts";
@@ -161,22 +158,6 @@ const claimSchema = z.discriminatedUnion("type", [
       .max(BOXES_PER_DAY - 1),
   }),
   z.object({
-    type: z.literal("word_correct"),
-    index: z
-      .number()
-      .int()
-      .min(0)
-      .max(WORDS_PER_DAY - 1),
-  }),
-  z.object({
-    type: z.literal("question_correct"),
-    index: z
-      .number()
-      .int()
-      .min(0)
-      .max(MAX_QUESTIONS_PER_DAY - 1),
-  }),
-  z.object({
     type: z.literal("clicker_round"),
     taps: z.number().int().min(1).max(CLICKER_MAX_TAPS),
   }),
@@ -220,10 +201,6 @@ export const claimReward = createServerFn({ method: "POST" })
           return once(`daily-gift-${day}`, DAILY_GIFT_POINTS);
         case "box_open":
           return once(`box-${day}-${c.session}`, BOX_REWARD);
-        case "word_correct":
-          return once(`word-${day}-${c.index}`, WORD_POINTS);
-        case "question_correct":
-          return once(`question-${day}-${c.index}`, QUESTION_POINTS);
         case "clicker_round": {
           // True 4h cooldown from the previous paid round. The key is derived
           // from that previous round, so concurrent claims collide on the
@@ -235,6 +212,48 @@ export const claimReward = createServerFn({ method: "POST" })
           return once(`clicker-after-${last?.id ?? "first"}`, c.taps * CLICKER_POINTS_PER_TAP);
         }
       }
+    } catch (e) {
+      return fail("server_error", e);
+    }
+  });
+
+/* --------------------------- daily game batches --------------------------- */
+
+/**
+ * ONE call at the end of an AZOX Word / Question Day session. The browser
+ * sends only which of today's indices it answered correctly (it still decides
+ * correctness — not provable server-side). The server fixes the amounts,
+ * pays each day/index once via claim_reward, and grants the completion task
+ * units only when all of today's rewards are recorded.
+ */
+export const completeDailyGame = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        initData,
+        game: z.enum(["word", "question"]),
+        indices: z.array(z.number().int().min(0).max(WORDS_PER_DAY - 1)).max(WORDS_PER_DAY),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const a = await auth(data.initData);
+    if (!a.ok) return fail(a.error);
+    const { normalizeIndices, runDailyBatch } = await import("./daily-batch");
+    const indices = normalizeIndices(data.game, data.indices);
+    if (!indices) return fail("invalid");
+    const id = a.user.id;
+    try {
+      const h = await helpers();
+      const r = await runDailyBatch(data.game, h.utcDay(), indices, {
+        claimOnce: (key, pts) => h.claimOnce(id, key, pts),
+        countEvents: (keys) => h.countEvents(id, keys),
+        insertTaskIds: (ids) => h.insertTaskIds(id, ids),
+        unitIds: h.unitIds,
+        currentPoints: () => h.currentPoints(id),
+      });
+      if (r.unitsAdded > 0) await h.recomputeTasksDone(id);
+      return { ok: true as const, ...r };
     } catch (e) {
       return fail("server_error", e);
     }

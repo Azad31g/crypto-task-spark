@@ -85,6 +85,7 @@ export default function QuestionDay() {
   const [timeLeft, setTimeLeft] = useState(SECONDS_PER_QUESTION);
   const [done, setDone] = useState(false);
   const completedRef = useRef(false);
+  const correctIdxRef = useRef<number[]>([]);
 
   const current = SAMPLE_QUESTIONS[index] ?? SAMPLE_QUESTIONS[0]!;
 
@@ -125,8 +126,10 @@ export default function QuestionDay() {
     completedRef.current = true;
     const correctCount = Math.round(score / POINTS_PER_CORRECT);
     const allCorrect = correctCount === SAMPLE_QUESTIONS.length;
+    // ONE backend request for the whole session (browser decides correctness).
+    addPoints(0, { type: "daily_batch", game: "question", indices: correctIdxRef.current });
     onQuestionComplete(allCorrect);
-  }, [done, score, onQuestionComplete]);
+  }, [done, score, onQuestionComplete, addPoints]);
 
   const answer = (i: number) => {
     if (picked !== null || done) return;
@@ -134,7 +137,9 @@ export default function QuestionDay() {
     haptic();
     if (i === current.correct) {
       setScore((s) => s + POINTS_PER_CORRECT);
-      addPoints(POINTS_PER_CORRECT, { type: "question_correct", index });
+      correctIdxRef.current.push(index);
+      // Local display only; paid by the end-of-game batch.
+      addPoints(POINTS_PER_CORRECT, { type: "none" });
     }
   };
 

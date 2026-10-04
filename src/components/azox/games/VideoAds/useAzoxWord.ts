@@ -99,7 +99,17 @@ const K = {
   best: "azoxWord_bestScore",
   wordIndex: "azoxWord_wordIndex",
   completed: "azoxWord_completed",
+  correctIdx: "azoxWord_correctIdx",
 } as const;
+
+function readIndices(): number[] {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(K.correctIdx) ?? "[]");
+    return Array.isArray(v) ? v.filter((n) => Number.isInteger(n)) : [];
+  } catch {
+    return [];
+  }
+}
 
 function readNumber(key: string): number {
   if (typeof window === "undefined") return 0;
@@ -157,6 +167,7 @@ export function useAzoxWord() {
       window.localStorage.setItem(K.todayCorrect, "0");
       window.localStorage.setItem(K.wordIndex, "0");
       window.localStorage.setItem(K.completed, "false");
+      window.localStorage.setItem(K.correctIdx, "[]");
     }
     setHydrated(true);
     return clearTimers;
@@ -192,8 +203,10 @@ export function useAzoxWord() {
       window.localStorage.setItem(K.best, String(nextBest));
       setBest(nextBest);
       setPhase("complete");
+      // ONE backend request for the whole session (browser decides correctness).
+      addPoints(0, { type: "daily_batch", game: "word", indices: readIndices() });
     },
-    [],
+    [addPoints],
   );
 
   const advance = useCallback(
@@ -256,7 +269,9 @@ export function useAzoxWord() {
         setCorrectCount(nextCorrect);
         window.localStorage.setItem(K.todayScore, String(nextScore));
         window.localStorage.setItem(K.todayCorrect, String(nextCorrect));
-        addPoints(POINTS_PER_WORD, { type: "word_correct", index });
+        window.localStorage.setItem(K.correctIdx, JSON.stringify([...readIndices(), index]));
+        // Local display only; paid by the end-of-game batch.
+        addPoints(POINTS_PER_WORD, { type: "none" });
         setPhase("correct");
       } else {
         haptic();
