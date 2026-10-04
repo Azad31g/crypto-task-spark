@@ -34,6 +34,18 @@ export function takeBatch(
   return { state: { pending: s.pending - units, inflight: batch }, batch };
 }
 
+/** Lifecycle variant: only re-sends an existing in-flight batch, never cuts a new one. */
+export function takeInflightOnly(s: TapBatchState): TapBatch | null {
+  return s.inflight;
+}
+
+/**
+ * Server tolerance: the client timer starts each interval when the request
+ * is sent, but the server stamps the event slightly later, so a strict
+ * comparison would reject every other on-time batch.
+ */
+export const TAP_BATCH_SERVER_GRACE_MS = 30 * 1000;
+
 /** Clears the in-flight batch only if the server confirmed this id. */
 export function confirmBatch(s: TapBatchState, id: string): TapBatchState {
   return s.inflight?.id === id ? { ...s, inflight: null } : s;

@@ -6,6 +6,7 @@ import {
   confirmBatch,
   parseTapState,
   takeBatch,
+  takeInflightOnly,
 } from "./tap-batch";
 
 let n = 0;
@@ -54,5 +55,22 @@ describe("tap batching", () => {
       pending: 3,
       inflight: { id: "abcdefgh1", units: 2 },
     });
+  });
+
+  it("lifecycle retry never cuts a fresh pending batch", () => {
+    expect(takeInflightOnly(addTaps(EMPTY_TAP_STATE, 9))).toBeNull();
+    const t = takeBatch(addTaps(EMPTY_TAP_STATE, 2), id);
+    expect(takeInflightOnly(addTaps(t.state, 5))).toEqual(t.batch);
+  });
+
+  it("new taps during in-flight are counted exactly once across retry/confirm", () => {
+    const t = takeBatch(addTaps(EMPTY_TAP_STATE, 10), id);
+    let s = addTaps(t.state, 3);
+    s = takeBatch(s, id).state; // retry: same batch, pending untouched
+    expect(s).toEqual({ pending: 3, inflight: t.batch });
+    s = confirmBatch(s, t.batch!.id);
+    const next = takeBatch(s, id);
+    expect(next.batch!.units).toBe(3);
+    expect(next.state.pending).toBe(0);
   });
 });

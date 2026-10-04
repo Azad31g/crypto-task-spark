@@ -194,9 +194,29 @@ export const claimReward = createServerFn({ method: "POST" })
           return { ok: true as const, granted: true, points: r.points, rank: r.rank };
         }
         case "tap_batch": {
-          // Amount from the server's own points/rank; idempotent per batchId.
+          const { TAP_BATCH_INTERVAL_MS, TAP_BATCH_SERVER_GRACE_MS } = await import("./tap-batch");
+          const key = `tap-batch-${c.batchId}`;
+          // Already processed: idempotent success so lost responses can retry.
+          if (await h.hasEvent(id, key)) {
+            return {
+              ok: true as const,
+              granted: false,
+              points: await h.currentPoints(id),
+              rank: null,
+            };
+          }
+          // Second line of defense: one accepted batch per interval.
+          const last = await h.lastEvent(id, "tap-batch-");
+          if (
+            last &&
+            Date.now() - Date.parse(last.created_at) <
+              TAP_BATCH_INTERVAL_MS - TAP_BATCH_SERVER_GRACE_MS
+          ) {
+            return fail("cooldown");
+          }
+          // Amount from the server's own points/rank.
           const per = rankForPoints(await h.currentPoints(id)).pointsPerFinger;
-          return once(`tap-batch-${c.batchId}`, c.tapUnits * per);
+          return once(key, c.tapUnits * per);
         }
         case "game_score": {
           const r = await h.grantPoints(id, c.score);
