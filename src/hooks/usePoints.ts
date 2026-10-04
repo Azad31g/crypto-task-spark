@@ -21,6 +21,7 @@ import {
   confirmBatch,
   parseTapState,
   takeBatch,
+  takeInflightOnly,
   type TapBatchState,
 } from "@/lib/tap-batch";
 import type { RewardClaim } from "@/lib/rewards";
@@ -40,11 +41,17 @@ let tapFlushInFlight = false;
  * only cleared after the server confirms it; failures keep it for retry
  * with the same id, so a lost response can never be paid twice.
  */
-async function flushTaps(): Promise<number | null> {
+async function flushTaps(inflightOnly = false): Promise<number | null> {
   if (tapFlushInFlight) return null;
-  const { state, batch } = takeBatch(readTaps());
+  let batch;
+  if (inflightOnly) {
+    batch = takeInflightOnly(readTaps());
+  } else {
+    const r = takeBatch(readTaps());
+    batch = r.batch;
+    if (batch) writeTaps(r.state);
+  }
   if (!batch) return null;
-  writeTaps(state);
   tapFlushInFlight = true;
   try {
     const total = await submitTapBatch(batch.id, batch.units);
@@ -114,11 +121,11 @@ export function usePoints() {
   const pprRef = useRef(1);
 
   // Main Tap batching: one request at most every 10 minutes, plus a
-  // best-effort flush when the page is hidden or left.
+  // best-effort retry of an in-flight batch when the page is hidden or left.
   useEffect(() => {
     if (!currentTelegramId()) return;
-    const run = () => {
-      void flushTaps().then((total) => {
+    const run = (inflightOnly = false) => {
+      void flushTaps(inflightOnly).then((total) => {
         if (typeof total !== "number") return;
         // Keep unsent local taps visible on top of the server total.
         const t = readTaps();
@@ -126,16 +133,19 @@ export function usePoints() {
         setState((prev) => ({ ...prev, points: total + unsent * pprRef.current }));
       });
     };
-    const timer = window.setInterval(run, TAP_BATCH_INTERVAL_MS);
+    const timer = window.setInterval(() => run(), TAP_BATCH_INTERVAL_MS);
+    // Lifecycle: only retry an already in-flight batch; fresh pending taps
+    // wait for the regular 10-minute timer.
     const onHide = () => {
-      if (document.visibilityState === "hidden") run();
+      if (document.visibilityState === "hidden") run(true);
     };
+    const onPageHide = () => run(true);
     document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", run);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("pagehide", run);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, []);
 
