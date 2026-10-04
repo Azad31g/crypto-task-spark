@@ -88,7 +88,7 @@ export function LeaderboardPage() {
             <img
               src="/azox/azad-bashqali.jpg"
               alt="Azad Bashqali"
-              className="size-full rounded-full object-cover"
+              className="absolute inset-0 size-full rounded-full object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
               }}
@@ -109,11 +109,12 @@ export function LeaderboardPage() {
           <Button
             variant="outline"
             size="sm"
-            className="shrink-0 gap-1 rounded-full border-story-accent/40 bg-background/50 px-2.5 font-bold text-story-accent hover:bg-story-accent/10 hover:text-story-accent"
+            className="shrink-0 gap-1 rounded-full border border-[#CCFF00]/70 bg-background/50 px-2.5 font-bold text-white hover:bg-[#CCFF00]/10 hover:text-white disabled:opacity-100"
             disabled={!stories.stories.length}
             onClick={() => setViewerOpen(true)}
           >
-            <CircleDashed aria-hidden="true" />Story<ChevronRight aria-hidden="true" />
+            <CircleDashed strokeWidth={2} className="text-[#CCFF00]" aria-hidden="true" />Story
+            <ChevronRight className="text-white" aria-hidden="true" />
           </Button>
         </div>
         <Link
