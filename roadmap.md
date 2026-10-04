@@ -5,3 +5,5 @@
 - [x] Restore an approved WalletConnect session into Wagmi after Telegram returns
 - [x] Airdrop: current wallet UI governed by Wagmi address + on-chain isEligible only
 - [ ] Physical Telegram Android device test (user)
+
+- [ ] Stories: authenticated engagement, founder viewer, private admin insights, validation
