@@ -6,4 +6,5 @@
 - [x] Airdrop: current wallet UI governed by Wagmi address + on-chain isEligible only
 - [ ] Physical Telegram Android device test (user)
 
-- [ ] Stories: authenticated engagement, founder viewer, private admin insights, validation
+- [x] Stories: authenticated engagement, founder viewer, private admin insights, automated validation
+- [ ] Physical-device Stories check: Telegram video playback, keyboard/safe areas, external links (user)

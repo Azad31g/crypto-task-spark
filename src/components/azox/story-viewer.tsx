@@ -40,6 +40,7 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
   const [id, setId] = useState(stories.find((s) => !s.seen)?.id ?? stories[0]?.id);
   const index = stories.findIndex((s) => s.id === id);
   const story = stories[index];
+  const storyId = story?.id;
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
   const [mediaError, setMediaError] = useState(false);
@@ -139,7 +140,7 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
     return () => window.clearTimeout(timer);
   }, [notice]);
   useEffect(() => {
-    if (!insightsOpen || !story || !isAdmin) return;
+    if (!insightsOpen || !storyId || !isAdmin) return;
     let cancelled = false;
     setInsights(null);
     setInsightsError(false);
@@ -148,7 +149,7 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
       setInsightsError(true);
       return;
     }
-    void insightsFn({ data: { initData, storyId: story.id } })
+    void insightsFn({ data: { initData, storyId } })
       .then((r) => {
         if (cancelled) return;
         if (r.ok) setInsights(r);
@@ -160,7 +161,7 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
     return () => {
       cancelled = true;
     };
-  }, [insightsOpen, story?.id, isAdmin, insightsFn]);
+  }, [insightsOpen, storyId, isAdmin, insightsFn]);
   async function like() {
     const initData = rawInitData();
     if (!story || !initData || likeLock.current) return;

@@ -11,13 +11,14 @@ export function useStories() {
     isAdmin: false,
   });
   const generation = useRef(0);
+  const mounted = useRef(true);
   const locallySeen = useRef(new Set<string>());
   const refetch = useCallback(async () => {
     const request = ++generation.current;
     try {
       const initData = rawInitData();
       const result = await fetchStories({ data: initData ? { initData } : {} });
-      if (request !== generation.current) return;
+      if (!mounted.current || request !== generation.current) return;
       setState({
         ...result,
         stories: result.stories
@@ -29,6 +30,7 @@ export function useStories() {
     }
   }, [fetchStories]);
   useEffect(() => {
+    mounted.current = true;
     void refetch();
     const focus = () => {
       if (document.visibilityState === "visible") void refetch();
@@ -36,7 +38,7 @@ export function useStories() {
     window.addEventListener("focus", focus);
     document.addEventListener("visibilitychange", focus);
     return () => {
-      generation.current++;
+      mounted.current = false;
       window.removeEventListener("focus", focus);
       document.removeEventListener("visibilitychange", focus);
     };

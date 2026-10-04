@@ -11,6 +11,8 @@ export const Route = createFileRoute("/")({
           "Tap, play mini games and climb 7 global ranks to earn AZOX points on Robinhood Chain.",
       },
       { property: "og:title", content: "AZOX — Tap to Earn on Robinhood Chain" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       {
         property: "og:description",
         content:
