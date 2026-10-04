@@ -11,6 +11,8 @@ export const Route = createFileRoute("/profile")({
           "Track your AZOX points, rank progress and share your referral link with friends.",
       },
       { property: "og:title", content: "AZOX Profile — Stats & Referral Link" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       {
         property: "og:description",
         content: "Your AZOX points, rank progress and referral link.",

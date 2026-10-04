@@ -11,6 +11,8 @@ export const Route = createFileRoute("/tasks")({
           "Claim your AZOX daily gift and complete Telegram, X, Instagram, TikTok, YouTube and Discord tasks.",
       },
       { property: "og:title", content: "AZOX Tasks — Daily Gift & Social Rewards" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       {
         property: "og:description",
         content: "Claim the daily gift and finish social tasks for AZOX points.",

@@ -11,6 +11,8 @@ export const Route = createFileRoute("/gaming")({
           "Browse the AZOX mini game hub: Global Button, Azox Word, Snake, Shoot, Box and more.",
       },
       { property: "og:title", content: "AZOX Gaming — Mini Games Hub" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       {
         property: "og:description",
         content: "Browse the AZOX mini game hub and earn points playing.",

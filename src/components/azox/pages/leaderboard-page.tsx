@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Crown, ArrowRight } from "lucide-react";
+import { Crown, ArrowRight, CircleDashed, ChevronRight } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import {
@@ -12,12 +12,17 @@ import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { useSupabaseLeaderboard } from "@/hooks/useSupabaseLeaderboard";
 import { useAzox } from "@/components/azox/app-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { useStories } from "@/hooks/useStories";
+import { StoryViewer } from "@/components/azox/story-viewer";
 
 type LeaderboardTab = "points" | "tasks" | "referrals";
 
 const ACTIVE_TAB_COLOR = "#CCFF00";
 
 export function LeaderboardPage() {
+  const stories = useStories();
+  const [viewerOpen, setViewerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<LeaderboardTab>("points");
   const [activeRank, setActiveRank] = useState<RankKey>("Legendary");
   const {
@@ -72,6 +77,13 @@ export function LeaderboardPage() {
       {/* Founder feature */}
       <section className="glass glow-purple flex flex-col gap-3 rounded-2xl p-4">
         <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            className={cn("relative size-12 shrink-0 rounded-full p-0 hover:bg-transparent disabled:opacity-100", stories.hasUnseen && "story-avatar-unseen")}
+            aria-label="Open founder stories"
+            disabled={!stories.stories.length}
+            onClick={() => setViewerOpen(true)}
+          >
           <Avatar className="size-12 border-2" style={{ borderColor: "#CCFF00" }}>
             <img
               src="/azox/azad-bashqali.jpg"
@@ -85,6 +97,8 @@ export function LeaderboardPage() {
               AB
             </AvatarFallback>
           </Avatar>
+          {stories.hasUnseen && <span className="absolute -right-0.5 -top-0.5 size-3 rounded-full border-2 border-background bg-destructive" aria-label="Unseen stories" />}
+          </Button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <Crown className="size-4 text-gold" aria-hidden="true" />
@@ -92,6 +106,15 @@ export function LeaderboardPage() {
             </div>
             <p className="text-xs text-muted-foreground">Founder — AZOX Token</p>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-1 rounded-full border-story-accent/40 bg-background/50 px-2.5 font-bold text-story-accent hover:bg-story-accent/10 hover:text-story-accent"
+            disabled={!stories.stories.length}
+            onClick={() => setViewerOpen(true)}
+          >
+            <CircleDashed aria-hidden="true" />Story<ChevronRight aria-hidden="true" />
+          </Button>
         </div>
         <Link
           to="/about"
@@ -106,6 +129,10 @@ export function LeaderboardPage() {
           <ArrowRight className="size-4" aria-hidden="true" />
         </Link>
       </section>
+
+      {viewerOpen && stories.stories.length > 0 && (
+        <StoryViewer stories={stories.stories} engagement={stories.engagement} isAdmin={stories.isAdmin} onClose={() => setViewerOpen(false)} onSeen={stories.markSeen} onLiked={stories.setLiked} />
+      )}
 
       {/* Leaderboard type tabs */}
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">

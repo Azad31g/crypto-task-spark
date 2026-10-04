@@ -11,6 +11,8 @@ export const Route = createFileRoute("/leaderboard")({
           "See the AZOX global leaderboard across 7 ranks, from Bronze to Legendary.",
       },
       { property: "og:title", content: "AZOX Ranks — Global Leaderboard" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       {
         property: "og:description",
         content: "Global AZOX leaderboard across 7 ranks, Bronze to Legendary.",

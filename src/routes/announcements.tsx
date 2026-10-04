@@ -11,6 +11,8 @@ export const Route = createFileRoute("/announcements")({
           "Read the latest AZOX announcements: airdrop news, new games, task drops and community updates.",
       },
       { property: "og:title", content: "AZOX Announcements — Latest News & Updates" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       {
         property: "og:description",
         content: "Latest AZOX news, airdrop updates and new task drops.",
