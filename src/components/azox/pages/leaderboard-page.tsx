@@ -129,13 +129,17 @@ export function LeaderboardPage() {
             <CircleDashed strokeWidth={2} className="text-[#CCFF00]" aria-hidden="true" />
             Story
             <ChevronRight className="text-white" aria-hidden="true" />
-            {stories.hasUnseen && (
+            {(stories.hasUnseen || hasActiveStories) && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute -right-1 -top-1 flex items-center gap-0.5"
               >
-                <span className="size-3 rounded-full border-2 border-background bg-destructive motion-safe:animate-pulse" />
-                <span className="size-3 rounded-full border-2 border-background bg-[#22C55E] shadow-[0_0_6px_#22C55E]" />
+                {stories.hasUnseen && (
+                  <span className="size-3 rounded-full border-2 border-background bg-destructive motion-safe:animate-pulse" />
+                )}
+                {hasActiveStories && (
+                  <span className="size-3 rounded-full border-2 border-background bg-[#22C55E] shadow-[0_0_6px_#22C55E]" />
+                )}
               </span>
             )}
           </Button>
