@@ -4,7 +4,6 @@
 // Topics are reduced to short fingerprints. The log persists across page
 // instances (localStorage) so a Telegram reload/new WebView can be correlated
 // with the attempt that started before the user left for the wallet.
-import { useEffect, useState } from "react";
 import { getAccount, getConnections, watchAccount, type Config } from "@wagmi/core";
 
 const PREFIX = "[AZOX-WALLET-DEBUG]";
@@ -322,54 +321,3 @@ export function startWalletDebug(
     .catch((e) => dbg("appkit.ready.error", String(e)));
 }
 
-export function WalletDebugPanel() {
-  const [open, setOpen] = useState(false);
-  const [, force] = useState(0);
-  useEffect(() => {
-    const f = () => force((n) => n + 1);
-    subs.add(f);
-    return () => void subs.delete(f);
-  }, []);
-  return (
-    <div style={{ position: "fixed", right: 6, bottom: 70, zIndex: 99999, fontSize: 10 }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="rounded bg-muted px-2 py-1 text-foreground"
-      >
-        DBG
-      </button>
-      {open && (
-        <div className="mt-1 w-[92vw] max-w-md rounded border bg-background p-2 text-foreground">
-          <div className="mb-1 flex gap-2">
-            <button
-              type="button"
-              className="rounded bg-primary px-2 py-1 text-primary-foreground"
-              onClick={() => void navigator.clipboard?.writeText(lines.join("\n"))}
-            >
-              Copy log
-            </button>
-            <button
-              type="button"
-              className="rounded bg-muted px-2 py-1 text-foreground"
-              onClick={() => {
-                lines.length = 0;
-                try {
-                  localStorage.removeItem(STORE_KEY);
-                } catch {
-                  /* ignore */
-                }
-                force((n) => n + 1);
-              }}
-            >
-              Clear
-            </button>
-          </div>
-          <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all">
-            {lines.join("\n")}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
