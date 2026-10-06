@@ -27,6 +27,7 @@ import {
   type StoryInsights,
 } from "@/lib/stories.functions";
 import { cn } from "@/lib/utils";
+import { StoryInsightsSheet } from "./story-insights-sheet";
 
 type Props = {
   stories: Story[];
@@ -53,6 +54,7 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [insights, setInsights] = useState<StoryInsights | null>(null);
   const [insightsError, setInsightsError] = useState(false);
+  const [insightsRetry, setInsightsRetry] = useState(0);
   const [likeBusy, setLikeBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
@@ -161,7 +163,7 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
     return () => {
       cancelled = true;
     };
-  }, [insightsOpen, storyId, isAdmin, insightsFn]);
+  }, [insightsOpen, storyId, isAdmin, insightsFn, insightsRetry]);
   async function like() {
     const initData = rawInitData();
     if (!story || !initData || likeLock.current) return;
@@ -400,72 +402,13 @@ export function StoryViewer({ stories, engagement, isAdmin, onClose, onSeen, onL
             </p>
           </div>
           {isAdmin && (
-            <DialogPrimitive.Root open={insightsOpen} onOpenChange={setInsightsOpen}>
-              <DialogPrimitive.Portal>
-                <DialogPrimitive.Overlay className="fixed inset-0 z-[110] bg-background/70" />
-                <DialogPrimitive.Content
-                  aria-describedby={undefined}
-                  className="story-insights fixed inset-x-0 bottom-0 z-[111] max-h-[75dvh] overflow-y-auto rounded-t-lg border border-border bg-card p-5 outline-none"
-                >
-                  <div className="mb-5 flex items-center justify-between">
-                    <DialogPrimitive.Title className="font-bold">
-                      Story insights
-                    </DialogPrimitive.Title>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Close insights"
-                      aria-label="Close insights"
-                      onClick={() => setInsightsOpen(false)}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                  {!insights && (
-                    <p className="text-sm text-muted-foreground">
-                      {insightsError ? "Insights unavailable" : "Loading…"}
-                    </p>
-                  )}
-                  {insights &&
-                    (["viewers", "likers", "comments"] as const).map((key) => (
-                      <section key={key} className="mb-6">
-                        <h3 className="mb-3 text-sm font-bold">
-                          {key === "viewers" ? "Viewers" : key === "likers" ? "Likes" : "Comments"}{" "}
-                          ·{" "}
-                          {key === "viewers"
-                            ? insights.counts.views
-                            : key === "likers"
-                              ? insights.counts.likes
-                              : insights.counts.comments}
-                        </h3>
-                        {!insights[key].length && (
-                          <p className="text-xs text-muted-foreground">None yet</p>
-                        )}
-                        <ul className="divide-y divide-border">
-                          {insights[key].map((person, i) => (
-                            <li key={`${person.time}-${i}`} className="py-3">
-                              <p className="break-words text-sm font-semibold">
-                                {person.name}{" "}
-                                <span className="font-normal text-muted-foreground">
-                                  {person.username}
-                                </span>
-                              </p>
-                              <time className="text-xs text-muted-foreground">
-                                {new Date(person.time).toLocaleString()}
-                              </time>
-                              {person.body && (
-                                <p className="mt-2 whitespace-pre-wrap break-words text-sm">
-                                  {person.body}
-                                </p>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    ))}
-                </DialogPrimitive.Content>
-              </DialogPrimitive.Portal>
-            </DialogPrimitive.Root>
+            <StoryInsightsSheet
+              open={insightsOpen}
+              onOpenChange={setInsightsOpen}
+              insights={insights}
+              error={insightsError}
+              onRetry={() => setInsightsRetry((value) => value + 1)}
+            />
           )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
