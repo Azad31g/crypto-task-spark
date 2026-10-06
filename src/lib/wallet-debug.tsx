@@ -320,4 +320,3 @@ export function startWalletDebug(
     })
     .catch((e) => dbg("appkit.ready.error", String(e)));
 }
-

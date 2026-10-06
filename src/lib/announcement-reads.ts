@@ -6,6 +6,9 @@ export function computeIsUnread(id: string, opened: ReadonlySet<string>): boolea
   return !opened.has(id);
 }
 /** Legacy browser fallback: bell dot shows when newest created_at differs from the stored one. */
-export function legacyHasNew(newestCreatedAt: string | undefined, lastSeen: string | null): boolean {
+export function legacyHasNew(
+  newestCreatedAt: string | undefined,
+  lastSeen: string | null,
+): boolean {
   return newestCreatedAt !== undefined && newestCreatedAt !== lastSeen;
 }

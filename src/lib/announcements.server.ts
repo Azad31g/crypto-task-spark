@@ -13,7 +13,10 @@ export type AnnouncementFailure = {
 };
 export type AnnouncementReads = { ok: true; seen: string[]; opened: string[] };
 
-const failure = (error: AnnouncementFailure["error"]): AnnouncementFailure => ({ ok: false, error });
+const failure = (error: AnnouncementFailure["error"]): AnnouncementFailure => ({
+  ok: false,
+  error,
+});
 
 async function verify(initData: string) {
   const auth = await verifyTelegramInitData(initData);

@@ -114,7 +114,11 @@ function sendReads(payload: { seenIds?: string[]; openedIds?: string[] }) {
 }
 
 export function useAnnouncements() {
-  const s = useSyncExternalStore(subscribe, () => state, () => SERVER_SNAPSHOT);
+  const s = useSyncExternalStore(
+    subscribe,
+    () => state,
+    () => SERVER_SNAPSHOT,
+  );
   useEffect(start, []);
 
   const ids = s.announcements.map((a) => a.id);

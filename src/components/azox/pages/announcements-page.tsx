@@ -90,7 +90,6 @@ export function AnnouncementsPage() {
             );
           })}
         </ul>
-
       )}
 
       {open && (
