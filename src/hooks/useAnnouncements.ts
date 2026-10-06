@@ -2,7 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
 import { getAnnouncementReads, markAnnouncementsRead } from "@/lib/announcements.functions";
 import { rawInitData } from "@/lib/azox-backend";
-import { computeHasNew, computeIsUnread, legacyHasNew } from "@/lib/announcement-reads";
+import { computeHasNew, computeIsUnread, computeUnseenIds, legacyHasNew } from "@/lib/announcement-reads";
 
 export interface Announcement {
   id: string;
@@ -132,11 +132,16 @@ export function useAnnouncements() {
     const cur = state;
     if (!cur.announcements.length) return;
     if (cur.mode === "server") {
-      const seenIds = cur.announcements.map((a) => a.id);
-      setState({ seen: new Set([...cur.seen, ...seenIds]) });
-      sendReads({ seenIds: seenIds.slice(0, 50) });
+      const unseen = computeUnseenIds(
+        cur.announcements.map((a) => a.id),
+        cur.seen,
+      );
+      if (!unseen.length) return;
+      setState({ seen: new Set([...cur.seen, ...unseen]) });
+      sendReads({ seenIds: unseen.slice(0, 50) });
     } else {
       const first = cur.announcements[0]!.created_at;
+      if (!legacyHasNew(first, cur.lastSeen)) return;
       try {
         localStorage.setItem(LAST_SEEN_KEY, first);
       } catch {
@@ -144,7 +149,9 @@ export function useAnnouncements() {
       }
       setState({ lastSeen: first });
     }
-  }, []);
+    // Re-created when the loaded announcements change so a page mounted before
+    // the fetch (slow network / deep link) still marks them seen on arrival.
+  }, [s.announcements]);
 
   const markOpened = useCallback((id: string) => {
     const cur = state;
