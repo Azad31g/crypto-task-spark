@@ -2,7 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
 import { getAnnouncementReads, markAnnouncementsRead } from "@/lib/announcements.functions";
 import { rawInitData } from "@/lib/azox-backend";
-import { computeHasNew, computeIsUnread, legacyHasNew } from "@/lib/announcement-reads";
+import { computeHasNew, computeIsUnread, computeUnseenIds, legacyHasNew } from "@/lib/announcement-reads";
 
 export interface Announcement {
   id: string;
