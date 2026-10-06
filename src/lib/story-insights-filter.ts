@@ -9,8 +9,11 @@ export function matchesPerson(
   query: string,
 ): boolean {
   const needle = normalize(query).replace(/^@/, "").trim();
-  return !needle || normalize(person.name).includes(needle) ||
-    normalize((person.username ?? "").replace(/^@/, "")).includes(needle);
+  return (
+    !needle ||
+    normalize(person.name).includes(needle) ||
+    normalize((person.username ?? "").replace(/^@/, "")).includes(needle)
+  );
 }
 
 export function sortByTime<T extends { time: string }>(list: readonly T[], order: TimeOrder): T[] {
@@ -18,7 +21,7 @@ export function sortByTime<T extends { time: string }>(list: readonly T[], order
     const value = Date.parse(time);
     return Number.isFinite(value) ? value : 0;
   };
-  return [...list].sort((a, b) =>
-    (timestamp(a.time) - timestamp(b.time)) * (order === "oldest" ? 1 : -1),
+  return [...list].sort(
+    (a, b) => (timestamp(a.time) - timestamp(b.time)) * (order === "oldest" ? 1 : -1),
   );
 }

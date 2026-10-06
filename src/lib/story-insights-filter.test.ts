@@ -12,8 +12,7 @@ describe("story insights search", () => {
       expect(matchesPerson(person, query)).toBe(true);
   });
   it("matches empty queries and handles missing usernames", () => {
-    for (const query of ["", "  ", "@"])
-      expect(matchesPerson(person, query)).toBe(true);
+    for (const query of ["", "  ", "@"]) expect(matchesPerson(person, query)).toBe(true);
     expect(matchesPerson({ name: "Azad", username: null }, "aza")).toBe(true);
     expect(matchesPerson({ name: "Azad", username: null }, "7")).toBe(false);
   });
