@@ -33,6 +33,12 @@ export function LeaderboardPage() {
   } = useLeaderboard(activeRank);
   const live = useSupabaseLeaderboard();
   const { user } = useAzox();
+  const hasActiveStories = stories.stories.length > 0;
+  const storyPillLabel = stories.hasUnseen
+    ? "Story, new story"
+    : hasActiveStories
+      ? "Story, story available"
+      : "Story, no active stories";
   const activeThreshold = thresholdFor(activeRank);
 
   const isCurrentUser = (rowName: string) =>
