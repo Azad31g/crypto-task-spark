@@ -55,7 +55,8 @@ let loading: Promise<void> | null = null;
 let started = false;
 
 async function load() {
-  const { data, error } = await (supabase as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- external table not in generated types
+  const { data, error } = await (supabase as unknown as { from: (t: string) => any })
     .from("announcements")
     .select("*")
     .order("created_at", { ascending: false })
