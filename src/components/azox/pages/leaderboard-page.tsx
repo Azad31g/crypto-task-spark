@@ -33,6 +33,12 @@ export function LeaderboardPage() {
   } = useLeaderboard(activeRank);
   const live = useSupabaseLeaderboard();
   const { user } = useAzox();
+  const hasActiveStories = stories.stories.length > 0;
+  const storyPillLabel = stories.hasUnseen
+    ? "Story, new story"
+    : hasActiveStories
+      ? "Story, story available"
+      : "Story, no active stories";
   const activeThreshold = thresholdFor(activeRank);
 
   const isCurrentUser = (rowName: string) =>
@@ -115,13 +121,27 @@ export function LeaderboardPage() {
           <Button
             variant="outline"
             size="sm"
-            className="shrink-0 gap-1 rounded-full border border-[#CCFF00]/70 bg-background/50 px-2.5 font-bold text-white hover:bg-[#CCFF00]/10 hover:text-white disabled:opacity-100"
+            className="relative shrink-0 gap-1 rounded-full border border-[#CCFF00]/70 bg-background/50 px-2.5 font-bold text-white hover:bg-[#CCFF00]/10 hover:text-white disabled:opacity-100"
             disabled={!stories.stories.length}
+            aria-label={storyPillLabel}
             onClick={() => setViewerOpen(true)}
           >
             <CircleDashed strokeWidth={2} className="text-[#CCFF00]" aria-hidden="true" />
             Story
             <ChevronRight className="text-white" aria-hidden="true" />
+            {(stories.hasUnseen || hasActiveStories) && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-1 -top-1 flex items-center gap-0.5"
+              >
+                {stories.hasUnseen && (
+                  <span className="size-3 rounded-full border-2 border-background bg-destructive motion-safe:animate-pulse" />
+                )}
+                {hasActiveStories && (
+                  <span className="size-3 rounded-full border-2 border-background bg-[#22C55E] shadow-[0_0_6px_#22C55E]" />
+                )}
+              </span>
+            )}
           </Button>
         </div>
         <Link
