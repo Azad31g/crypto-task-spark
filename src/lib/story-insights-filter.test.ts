@@ -24,7 +24,7 @@ describe("story insights search", () => {
     const rows = [{ time: "2026-10-06T10:32:00Z" }, { time: "2026-10-05T10:32:00Z" }];
     expect(sortByTime(rows, "newest")).toEqual(rows);
     expect(sortByTime(rows, "oldest")).toEqual([rows[1], rows[0]]);
-    expect(rows[0].time).toBe("2026-10-06T10:32:00Z");
+    expect(rows[0]?.time).toBe("2026-10-06T10:32:00Z");
     expect(sortByTime([], "newest")).toEqual([]);
   });
 });
