@@ -105,3 +105,50 @@ export async function writeAnnouncementReads(
     return failure("server_error");
   }
 }
+
+export type PrivateAnnouncement = {
+  id: string;
+  title: string;
+  message: string;
+  created_at: string;
+};
+export type PrivateAnnouncements = { ok: true; announcements: PrivateAnnouncement[] };
+
+export async function readPrivateAnnouncements(
+  input: unknown,
+): Promise<PrivateAnnouncements | AnnouncementFailure> {
+  const parsed = readsQuerySchema.safeParse(input);
+  if (!parsed.success) return failure("missing");
+  try {
+    const id = await verify(parsed.data.initData);
+    if (typeof id !== "number") return id;
+    const db = getExternalSupabaseAdmin();
+    const rec = await db
+      .from("announcement_recipients")
+      .select("announcement_id")
+      .eq("telegram_id", id)
+      .limit(500);
+    if (rec.error) return failure("server_error");
+    const ids = ((rec.data ?? []) as { announcement_id: string }[]).map((r) => r.announcement_id);
+    if (!ids.length) return { ok: true, announcements: [] };
+    const { data, error } = await db
+      .from("announcements")
+      .select("id,title,message,created_at")
+      .eq("is_private", true)
+      .in("id", ids)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) return failure("server_error");
+    return {
+      ok: true,
+      announcements: ((data ?? []) as PrivateAnnouncement[]).map((a) => ({
+        id: String(a.id),
+        title: String(a.title),
+        message: String(a.message),
+        created_at: String(a.created_at),
+      })),
+    };
+  } catch {
+    return failure("server_error");
+  }
+}
