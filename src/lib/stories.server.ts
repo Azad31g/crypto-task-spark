@@ -109,14 +109,35 @@ export async function readStories(input: unknown): Promise<StoriesResult> {
   const isAdmin = auth.ok && isStoryAdmin(auth.user.id);
   try {
     const db = getExternalSupabaseAdmin();
-    const rows =
+    const allRows =
       check(
         await db
           .from("stories")
-          .select("id,media_type,media_url,link_url,created_at,expires_at")
+          .select("id,media_type,media_url,link_url,created_at,expires_at,is_private")
           .gt("expires_at", new Date().toISOString())
           .order("created_at", { ascending: true }),
       ) ?? [];
+    const userId = auth.ok ? auth.user.id : null;
+    const privateIds = allRows.filter((r) => r.is_private).map((r) => String(r.id));
+    let mine = new Set<string>();
+    if (userId !== null && !isAdmin && privateIds.length) {
+      const rec = check(
+        await db
+          .from("story_recipients")
+          .select("story_id")
+          .eq("telegram_id", userId)
+          .in("story_id", privateIds),
+      );
+      mine = new Set((rec ?? []).map((r) => String(r.story_id)));
+    }
+    const rows = allRows.filter((r) =>
+      canSeeStory({
+        isPrivate: Boolean(r.is_private),
+        userId,
+        isAdmin,
+        recipients: userId !== null && mine.has(String(r.id)) ? [userId] : [],
+      }),
+    );
     let seen = new Set<string>();
     let liked = new Set<string>();
     if (auth.ok && rows.length) {
