@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeHasNew, computeIsUnread, legacyHasNew } from "./announcement-reads";
+import { computeHasNew, computeIsUnread, computeUnseenIds, legacyHasNew } from "./announcement-reads";
 
 describe("announcement read helpers", () => {
   it("hasNew when any loaded id is unseen", () => {
