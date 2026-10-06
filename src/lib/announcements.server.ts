@@ -77,7 +77,9 @@ export async function writeAnnouncementReads(
         .eq("telegram_id", id)
         .in("announcement_id", privateIds);
       if (rec.error) return failure("server_error");
-      mine = new Set(((rec.data ?? []) as { announcement_id: string }[]).map((r) => r.announcement_id));
+      mine = new Set(
+        ((rec.data ?? []) as { announcement_id: string }[]).map((r) => r.announcement_id),
+      );
     }
     // Private announcements count only for their recipients.
     const existing = new Set(rows.filter((r) => !r.is_private || mine.has(r.id)).map((r) => r.id));
