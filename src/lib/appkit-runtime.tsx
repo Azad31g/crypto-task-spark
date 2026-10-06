@@ -11,7 +11,7 @@ import { WagmiProvider } from "wagmi";
 import { cookieStorage, createStorage } from "@wagmi/core";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { AppKitButton, createAppKit } from "@reown/appkit/react";
-import { callerTrace, dbg, startWalletDebug, WalletDebugPanel } from "./wallet-debug";
+import { callerTrace, dbg, startWalletDebug } from "./wallet-debug";
 import { networks, projectId, APP_URL, TELEGRAM_APP_URL } from "./wagmi-config";
 
 // --- Telegram Mini App support -------------------------------------------
@@ -132,10 +132,5 @@ export function AppKitWagmiProvider({ children }: { children: ReactNode }) {
 }
 
 export function WalletButton({ balance }: { balance?: "hide" | "show" }) {
-  return (
-    <>
-      <AppKitButton {...(balance ? { balance } : {})} />
-      <WalletDebugPanel />
-    </>
-  );
+  return <AppKitButton {...(balance ? { balance } : {})} />;
 }
