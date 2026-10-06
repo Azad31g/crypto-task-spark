@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { computeHasNew, computeIsUnread, computeUnseenIds, legacyHasNew } from "./announcement-reads";
 
 describe("announcement read helpers", () => {
+  it("computeUnseenIds returns unseen ids in order", () => {
+    expect(computeUnseenIds([], new Set())).toEqual([]);
+    expect(computeUnseenIds(["a", "b"], new Set(["a", "b"]))).toEqual([]);
+    expect(computeUnseenIds(["a", "b", "c"], new Set(["b"]))).toEqual(["a", "c"]);
+    expect(computeUnseenIds(["b", "a"], new Set())).toEqual(["b", "a"]);
+    expect(computeUnseenIds(["a", "a", "b"], new Set())).toEqual(["a", "b"]);
+  });
   it("hasNew when any loaded id is unseen", () => {
     expect(computeHasNew(["a", "b"], new Set(["a"]))).toBe(true);
     expect(computeHasNew(["a", "b"], new Set(["a", "b"]))).toBe(false);
