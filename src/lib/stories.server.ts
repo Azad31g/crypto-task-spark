@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getExternalSupabaseAdmin } from "@/integrations/external-supabase/admin.server";
 import { verifyTelegramInitData } from "./telegram-auth.server";
+import { canSeeStory } from "./story-visibility";
 
 // Never export this identity to client-reachable modules.
 const STORY_ADMIN_ID = 2143639881;
@@ -75,11 +76,32 @@ async function active(storyId: string) {
   return check(
     await getExternalSupabaseAdmin()
       .from("stories")
-      .select("id")
+      .select("id,is_private")
       .eq("id", storyId)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle(),
+  ) as { id: string; is_private?: boolean | null } | null;
+}
+/** Active AND visible to this verified user; private non-recipients look inactive. */
+async function activeVisible(storyId: string, userId: number): Promise<boolean> {
+  const story = await active(storyId);
+  if (!story) return false;
+  const isAdmin = isStoryAdmin(userId);
+  if (!story.is_private || isAdmin) return true;
+  const rec = check(
+    await getExternalSupabaseAdmin()
+      .from("story_recipients")
+      .select("telegram_id")
+      .eq("story_id", storyId)
+      .eq("telegram_id", userId)
+      .maybeSingle(),
   );
+  return canSeeStory({
+    isPrivate: true,
+    userId,
+    isAdmin,
+    recipients: rec ? [userId] : [],
+  });
 }
 export async function readStories(input: unknown): Promise<StoriesResult> {
   const parsed = storyListSchema.safeParse(input);
