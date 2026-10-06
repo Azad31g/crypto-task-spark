@@ -3,8 +3,6 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Megaphone, X } from "lucide-react";
 import { useAnnouncements, type Announcement } from "@/hooks/useAnnouncements";
 
-const READ_KEY = "azox_read_announcements";
-
 function formatStamp(iso: string) {
   return new Date(iso)
     .toLocaleString("en-GB", {
@@ -17,42 +15,21 @@ function formatStamp(iso: string) {
     .replace(",", " •");
 }
 
-function readIds(): string[] {
-  try {
-    const raw = localStorage.getItem(READ_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 export function AnnouncementsPage() {
-  const { announcements, markSeen } = useAnnouncements();
-  const [read, setRead] = useState<string[]>([]);
+  const { announcements, markSeen, isUnread, markOpened } = useAnnouncements();
   const [open, setOpen] = useState<Announcement | null>(null);
 
   useEffect(() => {
     markSeen();
   }, [markSeen]);
 
-  useEffect(() => {
-    setRead(readIds());
-  }, []);
-
-  const openAnnouncement = useCallback((a: Announcement) => {
-    setOpen(a);
-    setRead((prev) => {
-      if (prev.includes(a.id)) return prev;
-      const next = [...prev, a.id];
-      try {
-        localStorage.setItem(READ_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
+  const openAnnouncement = useCallback(
+    (a: Announcement) => {
+      setOpen(a);
+      markOpened(a.id);
+    },
+    [markOpened],
+  );
 
   const sorted = [...announcements].sort(
     (a, b) => +new Date(b.created_at) - +new Date(a.created_at),
@@ -81,7 +58,7 @@ export function AnnouncementsPage() {
       ) : (
         <ul className="space-y-2">
           {sorted.map((a) => {
-            const unread = !read.includes(a.id);
+            const unread = isUnread(a.id);
             return (
               <li key={a.id}>
                 <button
