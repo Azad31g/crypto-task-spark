@@ -129,7 +129,7 @@ export function LeaderboardPage() {
             <CircleDashed strokeWidth={2} className="text-[#CCFF00]" aria-hidden="true" />
             Story
             <ChevronRight className="text-white" aria-hidden="true" />
-            {(stories.hasUnseen || hasActiveStories) && (
+            {true && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute -right-1 -top-1 flex items-center gap-0.5"
