@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getExternalSupabaseAdmin } from "@/integrations/external-supabase/admin.server";
 import { verifyTelegramInitData } from "./telegram-auth.server";
+import { canSeeStory } from "./story-visibility";
 
 // Never export this identity to client-reachable modules.
 const STORY_ADMIN_ID = 2143639881;
@@ -75,11 +76,32 @@ async function active(storyId: string) {
   return check(
     await getExternalSupabaseAdmin()
       .from("stories")
-      .select("id")
+      .select("id,is_private")
       .eq("id", storyId)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle(),
+  ) as { id: string; is_private?: boolean | null } | null;
+}
+/** Active AND visible to this verified user; private non-recipients look inactive. */
+async function activeVisible(storyId: string, userId: number): Promise<boolean> {
+  const story = await active(storyId);
+  if (!story) return false;
+  const isAdmin = isStoryAdmin(userId);
+  if (!story.is_private || isAdmin) return true;
+  const rec = check(
+    await getExternalSupabaseAdmin()
+      .from("story_recipients")
+      .select("telegram_id")
+      .eq("story_id", storyId)
+      .eq("telegram_id", userId)
+      .maybeSingle(),
   );
+  return canSeeStory({
+    isPrivate: true,
+    userId,
+    isAdmin,
+    recipients: rec ? [userId] : [],
+  });
 }
 export async function readStories(input: unknown): Promise<StoriesResult> {
   const parsed = storyListSchema.safeParse(input);
@@ -87,14 +109,35 @@ export async function readStories(input: unknown): Promise<StoriesResult> {
   const isAdmin = auth.ok && isStoryAdmin(auth.user.id);
   try {
     const db = getExternalSupabaseAdmin();
-    const rows =
+    const allRows =
       check(
         await db
           .from("stories")
-          .select("id,media_type,media_url,link_url,created_at,expires_at")
+          .select("id,media_type,media_url,link_url,created_at,expires_at,is_private")
           .gt("expires_at", new Date().toISOString())
           .order("created_at", { ascending: true }),
       ) ?? [];
+    const userId = auth.ok ? auth.user.id : null;
+    const privateIds = allRows.filter((r) => r.is_private).map((r) => String(r.id));
+    let mine = new Set<string>();
+    if (userId !== null && !isAdmin && privateIds.length) {
+      const rec = check(
+        await db
+          .from("story_recipients")
+          .select("story_id")
+          .eq("telegram_id", userId)
+          .in("story_id", privateIds),
+      );
+      mine = new Set((rec ?? []).map((r) => String(r.story_id)));
+    }
+    const rows = allRows.filter((r) =>
+      canSeeStory({
+        isPrivate: Boolean(r.is_private),
+        userId,
+        isAdmin,
+        recipients: userId !== null && mine.has(String(r.id)) ? [userId] : [],
+      }),
+    );
     let seen = new Set<string>();
     let liked = new Set<string>();
     if (auth.ok && rows.length) {
@@ -138,7 +181,7 @@ export async function viewStory(input: unknown): Promise<{ ok: true } | StoryFai
   const a = await verifyTelegramInitData(p.data.initData);
   if (!a.ok) return failure(a.error);
   try {
-    if (!(await active(p.data.storyId))) return failure("inactive");
+    if (!(await activeVisible(p.data.storyId, a.user.id))) return failure("inactive");
     if (!isStoryAdmin(a.user.id))
       check(
         await getExternalSupabaseAdmin()
@@ -161,7 +204,7 @@ export async function likeStory(
   const a = await verifyTelegramInitData(p.data.initData);
   if (!a.ok) return failure(a.error);
   try {
-    if (!(await active(p.data.storyId))) return failure("inactive");
+    if (!(await activeVisible(p.data.storyId, a.user.id))) return failure("inactive");
     const db = getExternalSupabaseAdmin();
     const existing = check(
       await db
@@ -199,7 +242,7 @@ export async function commentStory(input: unknown): Promise<{ ok: true } | Story
   const a = await verifyTelegramInitData(p.data.initData);
   if (!a.ok) return failure(a.error);
   try {
-    if (!(await active(p.data.storyId))) return failure("inactive");
+    if (!(await activeVisible(p.data.storyId, a.user.id))) return failure("inactive");
     const db = getExternalSupabaseAdmin();
     const { count, error } = await db
       .from("story_comments")

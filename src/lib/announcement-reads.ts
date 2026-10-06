@@ -20,3 +20,15 @@ export function legacyHasNew(
 ): boolean {
   return newestCreatedAt !== undefined && newestCreatedAt !== lastSeen;
 }
+/** Merge public + private lists: dedupe by id, newest first, keep `limit`. */
+export function mergeAnnouncements<T extends { id: string; created_at: string }>(
+  a: readonly T[],
+  b: readonly T[],
+  limit = 20,
+): T[] {
+  const byId = new Map<string, T>();
+  for (const x of [...a, ...b]) if (!byId.has(x.id)) byId.set(x.id, x);
+  return [...byId.values()]
+    .sort((x, y) => Date.parse(y.created_at) - Date.parse(x.created_at))
+    .slice(0, limit);
+}

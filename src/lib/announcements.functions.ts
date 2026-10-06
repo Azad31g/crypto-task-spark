@@ -11,3 +11,8 @@ export const markAnnouncementsRead = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     (await import("./announcements.server")).writeAnnouncementReads(data),
   );
+export const getPrivateAnnouncements = createServerFn({ method: "POST" })
+  .inputValidator((input: { initData: string }) => input)
+  .handler(async ({ data }) =>
+    (await import("./announcements.server")).readPrivateAnnouncements(data),
+  );

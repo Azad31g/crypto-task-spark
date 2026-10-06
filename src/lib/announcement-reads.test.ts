@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeHasNew, computeIsUnread, computeUnseenIds, legacyHasNew } from "./announcement-reads";
+import {
+  computeHasNew,
+  computeIsUnread,
+  computeUnseenIds,
+  legacyHasNew,
+} from "./announcement-reads";
 
 describe("announcement read helpers", () => {
   it("computeUnseenIds returns unseen ids in order", () => {
@@ -22,5 +27,27 @@ describe("announcement read helpers", () => {
     expect(legacyHasNew(undefined, null)).toBe(false);
     expect(legacyHasNew("t1", null)).toBe(true);
     expect(legacyHasNew("t1", "t1")).toBe(false);
+  });
+});
+
+import { mergeAnnouncements } from "./announcement-reads";
+describe("mergeAnnouncements", () => {
+  const a = (id: string, t: string) => ({ id, created_at: t });
+  it("dedupes, sorts newest first, limits", () => {
+    expect(
+      mergeAnnouncements(
+        [a("1", "2026-01-01T00:00:00Z"), a("2", "2026-01-03T00:00:00Z")],
+        [a("2", "2026-01-03T00:00:00Z"), a("3", "2026-01-02T00:00:00Z")],
+      ).map((x) => x.id),
+    ).toEqual(["2", "3", "1"]);
+    const many = Array.from({ length: 30 }, (_, i) =>
+      a(String(i), new Date(2026, 0, i + 1).toISOString()),
+    );
+    const out = mergeAnnouncements(many, []);
+    expect(out).toHaveLength(20);
+    expect(out[0]!.id).toBe("29");
+  });
+  it("handles empty lists", () => {
+    expect(mergeAnnouncements([], [])).toEqual([]);
   });
 });

@@ -65,9 +65,24 @@ export async function writeAnnouncementReads(
     const all = [...new Set([...seenIds, ...openedIds])];
     if (!all.length) return { ok: true };
     const db = getExternalSupabaseAdmin();
-    const { data, error } = await db.from("announcements").select("id").in("id", all);
+    const { data, error } = await db.from("announcements").select("id,is_private").in("id", all);
     if (error) return failure("server_error");
-    const existing = new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+    const rows = (data ?? []) as { id: string; is_private: boolean | null }[];
+    const privateIds = rows.filter((r) => r.is_private).map((r) => r.id);
+    let mine = new Set<string>();
+    if (privateIds.length) {
+      const rec = await db
+        .from("announcement_recipients")
+        .select("announcement_id")
+        .eq("telegram_id", id)
+        .in("announcement_id", privateIds);
+      if (rec.error) return failure("server_error");
+      mine = new Set(
+        ((rec.data ?? []) as { announcement_id: string }[]).map((r) => r.announcement_id),
+      );
+    }
+    // Private announcements count only for their recipients.
+    const existing = new Set(rows.filter((r) => !r.is_private || mine.has(r.id)).map((r) => r.id));
     const seen = seenIds.filter((x) => existing.has(x));
     const opened = openedIds.filter((x) => existing.has(x));
     if (seen.length) {
@@ -86,6 +101,53 @@ export async function writeAnnouncementReads(
       if (r.error) return failure("server_error");
     }
     return { ok: true };
+  } catch {
+    return failure("server_error");
+  }
+}
+
+export type PrivateAnnouncement = {
+  id: string;
+  title: string;
+  message: string;
+  created_at: string;
+};
+export type PrivateAnnouncements = { ok: true; announcements: PrivateAnnouncement[] };
+
+export async function readPrivateAnnouncements(
+  input: unknown,
+): Promise<PrivateAnnouncements | AnnouncementFailure> {
+  const parsed = readsQuerySchema.safeParse(input);
+  if (!parsed.success) return failure("missing");
+  try {
+    const id = await verify(parsed.data.initData);
+    if (typeof id !== "number") return id;
+    const db = getExternalSupabaseAdmin();
+    const rec = await db
+      .from("announcement_recipients")
+      .select("announcement_id")
+      .eq("telegram_id", id)
+      .limit(500);
+    if (rec.error) return failure("server_error");
+    const ids = ((rec.data ?? []) as { announcement_id: string }[]).map((r) => r.announcement_id);
+    if (!ids.length) return { ok: true, announcements: [] };
+    const { data, error } = await db
+      .from("announcements")
+      .select("id,title,message,created_at")
+      .eq("is_private", true)
+      .in("id", ids)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) return failure("server_error");
+    return {
+      ok: true,
+      announcements: ((data ?? []) as PrivateAnnouncement[]).map((a) => ({
+        id: String(a.id),
+        title: String(a.title),
+        message: String(a.message),
+        created_at: String(a.created_at),
+      })),
+    };
   } catch {
     return failure("server_error");
   }

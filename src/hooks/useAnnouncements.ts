@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { externalSupabase as supabase } from "@/integrations/external-supabase/client";
-import { getAnnouncementReads, markAnnouncementsRead } from "@/lib/announcements.functions";
+import {
+  getAnnouncementReads,
+  getPrivateAnnouncements,
+  markAnnouncementsRead,
+} from "@/lib/announcements.functions";
 import { rawInitData } from "@/lib/azox-backend";
-import { computeHasNew, computeIsUnread, computeUnseenIds, legacyHasNew } from "@/lib/announcement-reads";
+import {
+  computeHasNew,
+  computeIsUnread,
+  computeUnseenIds,
+  legacyHasNew,
+  mergeAnnouncements,
+} from "@/lib/announcement-reads";
 
 export interface Announcement {
   id: string;
@@ -62,8 +72,16 @@ async function load() {
     .order("created_at", { ascending: false })
     .limit(20);
   if (error || !data) return;
-  const announcements = data as Announcement[];
+  let announcements = data as Announcement[];
   const initData = rawInitData();
+  if (initData) {
+    try {
+      const priv = await getPrivateAnnouncements({ data: { initData } });
+      if (priv.ok) announcements = mergeAnnouncements(announcements, priv.announcements, 20);
+    } catch {
+      /* public announcements only */
+    }
+  }
   if (initData) {
     try {
       const reads = await getAnnouncementReads({ data: { initData } });
