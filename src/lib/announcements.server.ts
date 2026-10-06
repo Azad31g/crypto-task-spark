@@ -65,9 +65,22 @@ export async function writeAnnouncementReads(
     const all = [...new Set([...seenIds, ...openedIds])];
     if (!all.length) return { ok: true };
     const db = getExternalSupabaseAdmin();
-    const { data, error } = await db.from("announcements").select("id").in("id", all);
+    const { data, error } = await db.from("announcements").select("id,is_private").in("id", all);
     if (error) return failure("server_error");
-    const existing = new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+    const rows = (data ?? []) as { id: string; is_private: boolean | null }[];
+    const privateIds = rows.filter((r) => r.is_private).map((r) => r.id);
+    let mine = new Set<string>();
+    if (privateIds.length) {
+      const rec = await db
+        .from("announcement_recipients")
+        .select("announcement_id")
+        .eq("telegram_id", id)
+        .in("announcement_id", privateIds);
+      if (rec.error) return failure("server_error");
+      mine = new Set(((rec.data ?? []) as { announcement_id: string }[]).map((r) => r.announcement_id));
+    }
+    // Private announcements count only for their recipients.
+    const existing = new Set(rows.filter((r) => !r.is_private || mine.has(r.id)).map((r) => r.id));
     const seen = seenIds.filter((x) => existing.has(x));
     const opened = openedIds.filter((x) => existing.has(x));
     if (seen.length) {
