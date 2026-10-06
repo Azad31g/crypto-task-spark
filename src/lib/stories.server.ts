@@ -181,7 +181,7 @@ export async function viewStory(input: unknown): Promise<{ ok: true } | StoryFai
   const a = await verifyTelegramInitData(p.data.initData);
   if (!a.ok) return failure(a.error);
   try {
-    if (!(await active(p.data.storyId))) return failure("inactive");
+    if (!(await activeVisible(p.data.storyId, a.user.id))) return failure("inactive");
     if (!isStoryAdmin(a.user.id))
       check(
         await getExternalSupabaseAdmin()
@@ -204,7 +204,7 @@ export async function likeStory(
   const a = await verifyTelegramInitData(p.data.initData);
   if (!a.ok) return failure(a.error);
   try {
-    if (!(await active(p.data.storyId))) return failure("inactive");
+    if (!(await activeVisible(p.data.storyId, a.user.id))) return failure("inactive");
     const db = getExternalSupabaseAdmin();
     const existing = check(
       await db
@@ -242,7 +242,7 @@ export async function commentStory(input: unknown): Promise<{ ok: true } | Story
   const a = await verifyTelegramInitData(p.data.initData);
   if (!a.ok) return failure(a.error);
   try {
-    if (!(await active(p.data.storyId))) return failure("inactive");
+    if (!(await activeVisible(p.data.storyId, a.user.id))) return failure("inactive");
     const db = getExternalSupabaseAdmin();
     const { count, error } = await db
       .from("story_comments")
