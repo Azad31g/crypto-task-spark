@@ -40,7 +40,13 @@ export type StoriesResult = {
   engagement: boolean;
   error?: string;
 };
-export type InsightPerson = { name: string; username: string | null; time: string; body?: string };
+export type InsightPerson = {
+  name: string;
+  username: string | null;
+  photoUrl: string | null;
+  time: string;
+  body?: string;
+};
 export type StoryInsights = {
   ok: true;
   viewers: InsightPerson[];
@@ -245,7 +251,7 @@ export async function storyInsights(input: unknown): Promise<StoryInsights | Sto
       ? (check(
           await db
             .from("users")
-            .select("telegram_id,username,first_name,last_name")
+            .select("telegram_id,username,first_name,last_name,photo_url")
             .in("telegram_id", ids),
         ) ?? [])
       : [];
@@ -255,11 +261,12 @@ export async function storyInsights(input: unknown): Promise<StoryInsights | Sto
         {
           name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "User",
           username: u.username ? `@${String(u.username).replace(/^@/, "")}` : null,
+          photoUrl: safeStoryLink(u.photo_url),
         },
       ]),
     );
     const person = (id: unknown, time: string, body?: string): InsightPerson => ({
-      ...(people.get(String(id)) ?? { name: "User", username: null }),
+      ...(people.get(String(id)) ?? { name: "User", username: null, photoUrl: null }),
       time,
       ...(body === undefined ? {} : { body }),
     });
