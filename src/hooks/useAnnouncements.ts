@@ -62,6 +62,8 @@ function readLocalOpened(): Set<string> {
 }
 
 let loading: Promise<void> | null = null;
+const REFRESH_TTL_MS = 60 * 1000;
+let loadedAt = 0;
 let started = false;
 
 async function load() {
@@ -72,6 +74,7 @@ async function load() {
     .order("created_at", { ascending: false })
     .limit(20);
   if (error || !data) return;
+  loadedAt = Date.now();
   let announcements = data as Announcement[];
   const initData = rawInitData();
   if (initData) {
@@ -118,7 +121,9 @@ function start() {
   started = true;
   void refresh();
   const focus = () => {
-    if (document.visibilityState === "visible") void refresh();
+    if (document.visibilityState !== "visible") return;
+    if (Date.now() - loadedAt < REFRESH_TTL_MS) return;
+    void refresh();
   };
   window.addEventListener("focus", focus);
   document.addEventListener("visibilitychange", focus);
