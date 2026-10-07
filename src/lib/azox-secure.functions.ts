@@ -47,6 +47,7 @@ export type SecureError =
   | "not_verified"
   | "conflict"
   | "cooldown"
+  | "capped"
   | "busy"
   | "server_error";
 
