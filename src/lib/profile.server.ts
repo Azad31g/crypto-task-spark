@@ -23,7 +23,9 @@ async function verified(input: unknown): Promise<number | ProfileFailure> {
   return a.ok ? a.user.id : failure(a.error);
 }
 
-export async function readMyUser(input: unknown): Promise<{ ok: true; user: Row | null } | ProfileFailure> {
+export async function readMyUser(
+  input: unknown,
+): Promise<{ ok: true; user: Row | null } | ProfileFailure> {
   try {
     const id = await verified(input);
     if (typeof id !== "number") return id;
@@ -42,7 +44,8 @@ export async function readMyUser(input: unknown): Promise<{ ok: true; user: Row 
 export async function readMyWalletRegistration(
   input: unknown,
 ): Promise<
-  { ok: true; registration: { wallet_address: string; registered_at: string | null } | null } | ProfileFailure
+  | { ok: true; registration: { wallet_address: string; registered_at: string | null } | null }
+  | ProfileFailure
 > {
   try {
     const id = await verified(input);
@@ -66,7 +69,9 @@ export async function readMyWalletRegistration(
   }
 }
 
-export async function readMyTaskCount(input: unknown): Promise<{ ok: true; count: number } | ProfileFailure> {
+export async function readMyTaskCount(
+  input: unknown,
+): Promise<{ ok: true; count: number } | ProfileFailure> {
   try {
     const id = await verified(input);
     if (typeof id !== "number") return id;
@@ -81,7 +86,9 @@ export async function readMyTaskCount(input: unknown): Promise<{ ok: true; count
   }
 }
 
-export async function readReferredUsers(input: unknown): Promise<{ ok: true; users: Row[] } | ProfileFailure> {
+export async function readReferredUsers(
+  input: unknown,
+): Promise<{ ok: true; users: Row[] } | ProfileFailure> {
   try {
     const id = await verified(input);
     if (typeof id !== "number") return id;

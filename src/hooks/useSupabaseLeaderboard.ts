@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  displayName,
-  fetchAllTaskCounts,
-  fetchLeaderboard,
-  type LeaderboardRow,
-} from "@/lib/azox-backend";
+import { displayName, fetchLeaderboard, type LeaderboardRow } from "@/lib/azox-backend";
 import { rankForPoints, type RankKey } from "@/lib/azox-data";
 import { RANK_ORDER } from "@/hooks/useLeaderboard";
-
 
 export type LivePlayer = {
   name: string;
@@ -21,9 +15,11 @@ export type LivePlayer = {
 };
 
 function toPlayer(row: LeaderboardRow): LivePlayer {
-  const rank = (RANK_ORDER.includes(row.rank as RankKey)
-    ? (row.rank as RankKey)
-    : rankForPoints(row.points ?? 0).key) as RankKey;
+  const rank = (
+    RANK_ORDER.includes(row.rank as RankKey)
+      ? (row.rank as RankKey)
+      : rankForPoints(row.points ?? 0).key
+  ) as RankKey;
   return {
     name: displayName(row),
     points: row.points ?? 0,
@@ -43,16 +39,10 @@ export function useSupabaseLeaderboard() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      fetchLeaderboard("points", 200),
-      fetchAllTaskCounts(),
-    ]).then(([pointRows, taskCounts]) => {
+    fetchLeaderboard("points", 200).then((pointRows) => {
       if (cancelled) return;
-      // user_tasks is the single source of truth for task counts.
-      const withTasks = pointRows.map((row) => ({
-        ...toPlayer(row),
-        tasks: taskCounts.get(row.telegram_id) ?? 0,
-      }));
+      // users.tasks_done is recomputed from user_tasks server-side on every claim.
+      const withTasks = pointRows.map(toPlayer);
       setPlayers(withTasks);
       setTaskPlayers(withTasks);
     });
@@ -61,17 +51,13 @@ export function useSupabaseLeaderboard() {
     };
   }, []);
 
-
   const byRank = (key: RankKey) =>
     (players ?? [])
       .filter((p) => p.rank === key)
       .sort((a, b) => b.points - a.points)
       .map((p, i) => ({ ...p, position: i + 1 }));
 
-  const byTasks = () =>
-    (taskPlayers ?? [])
-      .sort((a, b) => b.tasks - a.tasks)
-      .slice(0, 100);
+  const byTasks = () => (taskPlayers ?? []).sort((a, b) => b.tasks - a.tasks).slice(0, 100);
 
   const byReferrals = () =>
     [...(players ?? [])].sort((a, b) => b.referrals - a.referrals).slice(0, 50);

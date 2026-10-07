@@ -21,8 +21,16 @@ describe("publicRowToDbUser", () => {
     expect(u.last_seen).toBeNull();
   });
   it("only requests anon-allowed columns", () => {
-    expect(PUBLIC_USER_COLUMNS.split(",").sort()).toEqual(
-      ["first_name", "last_name", "photo_url", "points", "rank", "referral_count", "tasks_done", "telegram_id", "username"],
-    );
+    expect(PUBLIC_USER_COLUMNS.split(",").sort()).toEqual([
+      "first_name",
+      "last_name",
+      "photo_url",
+      "points",
+      "rank",
+      "referral_count",
+      "tasks_done",
+      "telegram_id",
+      "username",
+    ]);
   });
 });

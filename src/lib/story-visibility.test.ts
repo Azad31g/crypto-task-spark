@@ -36,16 +36,25 @@ describe("resolveStoryMedia", () => {
     const boom = async (): Promise<string | null> => {
       throw new Error("x");
     };
-    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "https://pub", mediaPath: "a" }, bad)).toBeNull();
-    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "", mediaPath: "a" }, boom)).toBeNull();
-    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "https://pub", mediaPath: null }, ok)).toBeNull();
+    expect(
+      await resolveStoryMedia({ isPrivate: true, mediaUrl: "https://pub", mediaPath: "a" }, bad),
+    ).toBeNull();
+    expect(
+      await resolveStoryMedia({ isPrivate: true, mediaUrl: "", mediaPath: "a" }, boom),
+    ).toBeNull();
+    expect(
+      await resolveStoryMedia({ isPrivate: true, mediaUrl: "https://pub", mediaPath: null }, ok),
+    ).toBeNull();
   });
   it("leaves public stories untouched", async () => {
     let called = false;
     const spy = async () => ((called = true), "x");
-    expect(await resolveStoryMedia({ isPrivate: false, mediaUrl: "https://pub/x", mediaPath: null }, spy)).toBe(
-      "https://pub/x",
-    );
+    expect(
+      await resolveStoryMedia(
+        { isPrivate: false, mediaUrl: "https://pub/x", mediaPath: null },
+        spy,
+      ),
+    ).toBe("https://pub/x");
     expect(called).toBe(false);
   });
 });
