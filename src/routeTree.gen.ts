@@ -19,6 +19,7 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ReferralsRouteImport } from './routes/referrals'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as GamesGameRouteImport } from './routes/games.$game'
+import { Route as ApiPublicTapFlushRouteImport } from './routes/api/public/tap-flush'
 import { Route as ApiPublicInstagramWebhookRouteImport } from './routes/api/public/instagram/webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -71,6 +72,11 @@ const GamesGameRoute = GamesGameRouteImport.update({
   path: '/games/$game',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicTapFlushRoute = ApiPublicTapFlushRouteImport.update({
+  id: '/api/public/tap-flush',
+  path: '/api/public/tap-flush',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicInstagramWebhookRoute =
   ApiPublicInstagramWebhookRouteImport.update({
     id: '/api/public/instagram/webhook',
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/referrals': typeof ReferralsRoute
   '/tasks': typeof TasksRoute
   '/games/$game': typeof GamesGameRoute
+  '/api/public/tap-flush': typeof ApiPublicTapFlushRoute
   '/api/public/instagram/webhook': typeof ApiPublicInstagramWebhookRoute
 }
 export interface FileRoutesByTo {
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/referrals': typeof ReferralsRoute
   '/tasks': typeof TasksRoute
   '/games/$game': typeof GamesGameRoute
+  '/api/public/tap-flush': typeof ApiPublicTapFlushRoute
   '/api/public/instagram/webhook': typeof ApiPublicInstagramWebhookRoute
 }
 export interface FileRoutesById {
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/referrals': typeof ReferralsRoute
   '/tasks': typeof TasksRoute
   '/games/$game': typeof GamesGameRoute
+  '/api/public/tap-flush': typeof ApiPublicTapFlushRoute
   '/api/public/instagram/webhook': typeof ApiPublicInstagramWebhookRoute
 }
 export interface FileRouteTypes {
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/referrals'
     | '/tasks'
     | '/games/$game'
+    | '/api/public/tap-flush'
     | '/api/public/instagram/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/referrals'
     | '/tasks'
     | '/games/$game'
+    | '/api/public/tap-flush'
     | '/api/public/instagram/webhook'
   id:
     | '__root__'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/referrals'
     | '/tasks'
     | '/games/$game'
+    | '/api/public/tap-flush'
     | '/api/public/instagram/webhook'
   fileRoutesById: FileRoutesById
 }
@@ -171,6 +183,7 @@ export interface RootRouteChildren {
   ReferralsRoute: typeof ReferralsRoute
   TasksRoute: typeof TasksRoute
   GamesGameRoute: typeof GamesGameRoute
+  ApiPublicTapFlushRoute: typeof ApiPublicTapFlushRoute
   ApiPublicInstagramWebhookRoute: typeof ApiPublicInstagramWebhookRoute
 }
 
@@ -246,6 +259,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesGameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/tap-flush': {
+      id: '/api/public/tap-flush'
+      path: '/api/public/tap-flush'
+      fullPath: '/api/public/tap-flush'
+      preLoaderRoute: typeof ApiPublicTapFlushRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/instagram/webhook': {
       id: '/api/public/instagram/webhook'
       path: '/api/public/instagram/webhook'
@@ -267,6 +287,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReferralsRoute: ReferralsRoute,
   TasksRoute: TasksRoute,
   GamesGameRoute: GamesGameRoute,
+  ApiPublicTapFlushRoute: ApiPublicTapFlushRoute,
   ApiPublicInstagramWebhookRoute: ApiPublicInstagramWebhookRoute,
 }
 export const routeTree = rootRouteImport

@@ -12,15 +12,17 @@ import {
   claimRewardRemote,
   currentTelegramId,
   fetchUser,
+  sendTapBatchKeepalive,
   submitTapBatch,
 } from "@/lib/azox-backend";
 import {
-  TAP_BATCH_INTERVAL_MS,
+  TAP_FLUSH_INTERVAL_MS,
   TAP_BATCH_STORAGE_KEY,
   addTaps,
   confirmBatch,
   parseTapState,
   takeBatch,
+  shouldFlush,
   takeInflightOnly,
   type TapBatchState,
 } from "@/lib/tap-batch";
@@ -35,6 +37,24 @@ const writeTaps = (s: TapBatchState) => writeStorage(TAP_BATCH_STORAGE_KEY, s);
 
 /** One flush at a time per client (module-level guard). */
 let tapFlushInFlight = false;
+/** Last time any tap request left this client (spacing guard). */
+let tapLastSentMs = 0;
+
+/**
+ * Leaving the app: cut a batch now, persist it as in-flight BEFORE sending,
+ * and send it with keepalive. It is not cleared here (no response); the next
+ * open/timer re-sends the same id and clears it on 'duplicate'/'granted'.
+ */
+function keepaliveFlush(): void {
+  if (tapFlushInFlight) return;
+  const now = Date.now();
+  if (!shouldFlush(readTaps(), now, tapLastSentMs)) return;
+  const r = takeBatch(readTaps());
+  if (!r.batch) return;
+  writeTaps(r.state);
+  tapLastSentMs = now;
+  sendTapBatchKeepalive(r.batch);
+}
 
 /**
  * Sends the in-flight batch (or cuts a new one from pending). The batch is
@@ -43,6 +63,7 @@ let tapFlushInFlight = false;
  */
 async function flushTaps(inflightOnly = false): Promise<number | null> {
   if (tapFlushInFlight) return null;
+  if (!shouldFlush(readTaps(), Date.now(), tapLastSentMs)) return null;
   let batch;
   if (inflightOnly) {
     batch = takeInflightOnly(readTaps());
@@ -53,6 +74,7 @@ async function flushTaps(inflightOnly = false): Promise<number | null> {
   }
   if (!batch) return null;
   tapFlushInFlight = true;
+  tapLastSentMs = Date.now();
   try {
     const total = await submitTapBatch(batch.id, batch.units);
     if (total === null) return null;
@@ -120,12 +142,12 @@ export function usePoints() {
 
   const pprRef = useRef(1);
 
-  // Main Tap batching: one request at most every 10 minutes, plus a
-  // best-effort retry of an in-flight batch when the page is hidden or left.
+  // Main Tap flushing: on open, on a safety timer, and on leaving (keepalive).
+  // The server enforces the sustained rate (token bucket).
   useEffect(() => {
     if (!currentTelegramId()) return;
-    const run = (inflightOnly = false) => {
-      void flushTaps(inflightOnly).then((total) => {
+    const run = () => {
+      void flushTaps().then((total) => {
         if (typeof total !== "number") return;
         // Keep unsent local taps visible on top of the server total.
         const t = readTaps();
@@ -133,13 +155,12 @@ export function usePoints() {
         setState((prev) => ({ ...prev, points: total + unsent * pprRef.current }));
       });
     };
-    const timer = window.setInterval(() => run(), TAP_BATCH_INTERVAL_MS);
-    // Lifecycle: only retry an already in-flight batch; fresh pending taps
-    // wait for the regular 10-minute timer.
+    run(); // leftover batch from a previous session
+    const timer = window.setInterval(run, TAP_FLUSH_INTERVAL_MS);
     const onHide = () => {
-      if (document.visibilityState === "hidden") run(true);
+      if (document.visibilityState === "hidden") keepaliveFlush();
     };
-    const onPageHide = () => run(true);
+    const onPageHide = () => keepaliveFlush();
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onPageHide);
     return () => {
@@ -159,7 +180,7 @@ export function usePoints() {
     (fingers = 1) => {
       const units = Math.min(10, Math.max(1, Math.floor(fingers)));
       const gained = Math.max(1, fingers) * rank.pointsPerFinger;
-      // Local only; the server pays via the periodic tap_batch.
+      // Local only; the server pays via tap_batch flushes.
       setState((prev) => ({ ...prev, points: prev.points + gained, taps: prev.taps + 1 }));
       writeTaps(addTaps(readTaps(), units));
       return gained;

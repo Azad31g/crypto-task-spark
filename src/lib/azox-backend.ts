@@ -156,6 +156,22 @@ export async function submitTapBatch(batchId: string, tapUnits: number): Promise
   return null;
 }
 
+/** Fire-and-forget tap batch that survives page unload (keepalive). */
+export function sendTapBatchKeepalive(batch: { id: string; units: number }): void {
+  try {
+    const initData = rawInitData();
+    if (!initData) return;
+    void fetch("/api/public/tap-flush", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ initData, batchId: batch.id, tapUnits: batch.units }),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    // never throws
+  }
+}
+
 /** True number of unique tasks completed by the verified user. */
 export async function fetchTaskCount(_telegramId: number): Promise<number> {
   const initData = rawInitData();

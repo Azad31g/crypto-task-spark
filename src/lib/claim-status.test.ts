@@ -40,5 +40,22 @@ describe("parseRpcStatus", () => {
     expect(parseRpcStatus(null)).toBeNull();
     expect(parseRpcStatus({ points: 1 })).toBeNull();
   });
-  it("tap interval is 570s", () => expect(TAP_MIN_INTERVAL_SECONDS).toBe(570));
+  it("parses clipped token-bucket result", () => {
+    const r = parseRpcStatus({
+      status: "granted",
+      points: 9,
+      rank: "Bronze",
+      units_paid: 3,
+      clipped: true,
+    });
+    expect(r).toEqual({
+      status: "granted",
+      points: 9,
+      rank: "Bronze",
+      unitsPaid: 3,
+      clipped: true,
+    });
+    expect(mapClaimStatus(r!)).toEqual({ ok: true, granted: true, points: 9, rank: "Bronze" });
+  });
+  it("tap interval is 5s", () => expect(TAP_MIN_INTERVAL_SECONDS).toBe(5));
 });
