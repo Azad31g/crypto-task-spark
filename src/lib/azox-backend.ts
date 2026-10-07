@@ -12,6 +12,13 @@ import {
   syncTasksDone as syncTasksDoneFn,
   syncUser as syncUserFn,
 } from "@/lib/azox-secure.functions";
+import {
+  getMyTaskCount,
+  getMyUser,
+  getMyWalletRegistration,
+  getReferredUsers,
+} from "@/lib/profile.functions";
+import { PUBLIC_USER_COLUMNS, publicRowToDbUser, type PublicUserRow } from "@/lib/public-user";
 
 /** Raw signed Telegram initData — the only identity sent for writes. */
 export function rawInitData(): string | null {
@@ -67,14 +74,26 @@ export async function syncTelegramUser(): Promise<DbUser | null> {
 }
 
 export async function fetchUser(telegramId: number): Promise<DbUser | null> {
+  const initData = rawInitData();
+  if (initData) {
+    try {
+      const res = await getMyUser({ data: { initData } });
+      if (res.ok) return (res.user as unknown as DbUser) ?? null;
+      console.warn("[azox-backend] getMyUser rejected:", res.error);
+    } catch (e) {
+      console.error("[azox-backend] getMyUser failed", e);
+    }
+    return null;
+  }
   try {
+    // Browser fallback: anon-visible columns only.
     const { data, error } = await db
       .from("users")
-      .select("*")
+      .select(PUBLIC_USER_COLUMNS)
       .eq("telegram_id", telegramId)
       .maybeSingle();
     if (error) throw error;
-    return (data as DbUser) ?? null;
+    return data ? publicRowToDbUser(data as PublicUserRow) : null;
   } catch (e) {
     console.error("[azox-backend] fetchUser failed", e);
     return null;
@@ -137,41 +156,17 @@ export async function submitTapBatch(batchId: string, tapUnits: number): Promise
   return null;
 }
 
-/** True number of unique tasks completed by a user (source of truth). */
-export async function fetchTaskCount(telegramId: number): Promise<number> {
+/** True number of unique tasks completed by the verified user. */
+export async function fetchTaskCount(_telegramId: number): Promise<number> {
+  const initData = rawInitData();
+  if (!initData) return 0;
   try {
-    const { count, error } = await db
-      .from("user_tasks")
-      .select("task_id", { count: "exact", head: true })
-      .eq("telegram_id", telegramId);
-    if (error) throw error;
-    return count ?? 0;
+    const res = await getMyTaskCount({ data: { initData } });
+    return res.ok ? res.count : 0;
   } catch (e) {
     console.error("[azox-backend] fetchTaskCount failed", e);
     return 0;
   }
-}
-
-/** Unique task counts for every user, keyed by telegram_id. */
-export async function fetchAllTaskCounts(): Promise<Map<number, number>> {
-  const counts = new Map<number, number>();
-  try {
-    const { data, error } = await db.from("user_tasks").select("telegram_id, task_id").limit(50000);
-    if (error) throw error;
-    const seen = new Set<string>();
-    for (const row of (data ?? []) as {
-      telegram_id: number;
-      task_id: string;
-    }[]) {
-      const key = `${row.telegram_id}:${row.task_id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      counts.set(row.telegram_id, (counts.get(row.telegram_id) ?? 0) + 1);
-    }
-  } catch (e) {
-    console.error("[azox-backend] fetchAllTaskCounts failed", e);
-  }
-  return counts;
 }
 
 /** Records a social task (and its bonus task units) on the server. */
@@ -291,16 +286,13 @@ export async function registerReferral(_code: string | null): Promise<boolean> {
   return false;
 }
 
-/** Users who joined through this user's referral link. */
-export async function fetchReferredUsers(telegramId: number): Promise<ReferredUser[]> {
+/** Users who joined through the verified user's referral link. */
+export async function fetchReferredUsers(_telegramId: number): Promise<ReferredUser[]> {
+  const initData = rawInitData();
+  if (!initData) return [];
   try {
-    const { data, error } = await db
-      .from("users")
-      .select("telegram_id, username, first_name, last_name, photo_url, points, joined_at")
-      .eq("referred_by", telegramId)
-      .order("joined_at", { ascending: false });
-    if (error) throw error;
-    return (data as ReferredUser[]) ?? [];
+    const res = await getReferredUsers({ data: { initData } });
+    return res.ok ? (res.users as unknown as ReferredUser[]) : [];
   } catch (e) {
     console.error("[azox-backend] fetchReferredUsers failed", e);
     return [];
@@ -312,20 +304,15 @@ export type WalletRegistration = {
   registered_at: string | null;
 };
 
-/** ANY row for this telegram_id means the user is registered forever. */
+/** ANY row for the verified user means registered forever. */
 export async function fetchWalletRegistration(
-  telegramId: number,
+  _telegramId: number,
 ): Promise<WalletRegistration | null> {
+  const initData = rawInitData();
+  if (!initData) return null;
   try {
-    const { data, error } = await db
-      .from("wallet_registrations")
-      .select("wallet_address, registered_at")
-      .eq("telegram_id", telegramId)
-      .order("registered_at", { ascending: true })
-      .limit(1);
-    if (error) throw error;
-    const row = (data as WalletRegistration[] | null)?.[0];
-    return row ?? null;
+    const res = await getMyWalletRegistration({ data: { initData } });
+    return res.ok ? res.registration : null;
   } catch (e) {
     console.error("[azox-backend] fetchWalletRegistration failed", e);
     return null;

@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { rankForPoints } from "./ranks";
 import {
   BOXES_PER_DAY,
   BOX_REWARD,
@@ -15,10 +14,11 @@ import {
   MAX_GAME_SCORE,
   QUESTIONS_PER_DAY,
   SCORE_GAMES,
-  TAP_MAX_FINGERS,
   TASK_UNITS,
   WORDS_PER_DAY,
 } from "./rewards";
+import { GAME_SCORE_MAX_PER_CLAIM } from "./rate-limits";
+import { TAP_BATCH_MAX_UNITS } from "./tap-batch";
 import { SOCIAL_TASKS } from "./social-tasks";
 import { AZOX_AIRDROP_ABI, AZOX_AIRDROP_ADDRESS, REGISTRATION_FEE } from "./contracts";
 
@@ -47,6 +47,7 @@ export type SecureError =
   | "not_verified"
   | "conflict"
   | "cooldown"
+  | "capped"
   | "busy"
   | "server_error";
 
@@ -146,11 +147,10 @@ export const syncUser = createServerFn({ method: "POST" })
 /* ------------------------------- claimReward ------------------------------- */
 
 const claimSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("tap"), fingers: z.number().int().min(1).max(TAP_MAX_FINGERS) }),
   z.object({
     type: z.literal("tap_batch"),
     batchId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
-    tapUnits: z.number().int().min(1).max(20_000),
+    tapUnits: z.number().int().min(1).max(TAP_BATCH_MAX_UNITS),
   }),
   z.object({ type: z.literal("social_task"), taskId }),
   z.object({ type: z.literal("daily_gift") }),
@@ -169,7 +169,7 @@ const claimSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("game_score"),
     gameId: z.enum(SCORE_GAMES),
-    score: z.number().int().min(1).max(MAX_GAME_SCORE),
+    score: z.number().int().min(1).max(GAME_SCORE_MAX_PER_CLAIM),
   }),
 ]);
 
@@ -188,39 +188,17 @@ export const claimReward = createServerFn({ method: "POST" })
         return { ok: true as const, granted: r.granted, points: r.points, rank: r.rank };
       };
       switch (c.type) {
-        case "tap": {
-          const per = rankForPoints(await h.currentPoints(id)).pointsPerFinger;
-          const r = await h.grantPoints(id, c.fingers * per);
-          return { ok: true as const, granted: true, points: r.points, rank: r.rank };
-        }
         case "tap_batch": {
-          const { TAP_BATCH_INTERVAL_MS, TAP_BATCH_SERVER_GRACE_MS } = await import("./tap-batch");
-          const key = `tap-batch-${c.batchId}`;
-          // Already processed: idempotent success so lost responses can retry.
-          if (await h.hasEvent(id, key)) {
-            return {
-              ok: true as const,
-              granted: false,
-              points: await h.currentPoints(id),
-              rank: null,
-            };
-          }
-          // Second line of defense: one accepted batch per interval.
-          const last = await h.lastEvent(id, "tap-batch-");
-          if (
-            last &&
-            Date.now() - Date.parse(last.created_at) <
-              TAP_BATCH_INTERVAL_MS - TAP_BATCH_SERVER_GRACE_MS
-          ) {
-            return fail("cooldown");
-          }
-          // Amount from the server's own points/rank.
-          const per = rankForPoints(await h.currentPoints(id)).pointsPerFinger;
-          return once(key, c.tapUnits * per);
+          // Atomic: cooldown, idempotency and amount decided under a row lock.
+          const { mapClaimStatus } = await import("./claim-status");
+          const m = mapClaimStatus(await h.claimTapBatch(id, c.batchId, c.tapUnits));
+          return m.ok ? m : fail(m.error, m.error === "server_error" ? "tap status" : undefined);
         }
         case "game_score": {
-          const r = await h.grantPoints(id, c.score);
-          return { ok: true as const, granted: true, points: r.points, rank: r.rank };
+          const { mapClaimStatus } = await import("./claim-status");
+          const m = mapClaimStatus(await h.claimGameScore(id, c.gameId, c.score));
+          if (m.ok && !m.granted) return fail("server_error", "game_score duplicate");
+          return m.ok ? m : fail(m.error, m.error === "server_error" ? "game status" : undefined);
         }
         case "social_task": {
           const v = await verifySocialTask(id, c.taskId);

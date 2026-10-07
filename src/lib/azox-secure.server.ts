@@ -2,6 +2,7 @@
 // Server-only helpers for verified AZOX writes (service-role client).
 import { getExternalSupabaseAdmin } from "@/integrations/external-supabase/admin.server";
 import { RANK_THRESHOLDS_PAYLOAD } from "./rewards";
+import { parseRpcStatus, type RpcClaimStatus } from "./claim-status";
 
 type Db = {
   from: (table: string) => any;
@@ -196,4 +197,53 @@ export async function isInstagramVerified(userId: number, taskId: string): Promi
 
 export function utcDay(nowMs = Date.now()): string {
   return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+/** Atomic Main Tap batch (row-locked; idempotent per batch id). */
+export async function claimTapBatch(
+  telegramId: number,
+  batchId: string,
+  units: number,
+): Promise<RpcClaimStatus> {
+  const { RANKS } = await import("./ranks");
+  const { TAP_MIN_INTERVAL_SECONDS } = await import("./rate-limits");
+  const { TAP_BATCH_MAX_UNITS } = await import("./tap-batch");
+  const { data, error } = await db().rpc("claim_tap_batch", {
+    p_telegram_id: telegramId,
+    p_batch_id: batchId,
+    p_units: units,
+    p_ranks: RANKS.map(({ key, threshold, pointsPerFinger }) => ({
+      key,
+      threshold,
+      perFinger: pointsPerFinger,
+    })),
+    p_min_interval_seconds: TAP_MIN_INTERVAL_SECONDS,
+    p_max_units: TAP_BATCH_MAX_UNITS,
+  });
+  if (error) throw new Error(`claim_tap_batch: ${error.message}`);
+  const parsed = parseRpcStatus(data);
+  if (!parsed) throw new Error("claim_tap_batch: unexpected response");
+  return parsed;
+}
+
+/** Atomic arcade score payout with cooldown, per-claim and hourly caps. */
+export async function claimGameScore(
+  telegramId: number,
+  gameId: string,
+  score: number,
+): Promise<RpcClaimStatus> {
+  const r = await import("./rate-limits");
+  const { data, error } = await db().rpc("claim_game_score", {
+    p_telegram_id: telegramId,
+    p_game_id: gameId,
+    p_score: score,
+    p_thresholds: RANK_THRESHOLDS_PAYLOAD,
+    p_min_interval_seconds: r.GAME_SCORE_MIN_INTERVAL_SECONDS,
+    p_max_score: r.GAME_SCORE_MAX_PER_CLAIM,
+    p_max_points_per_hour: r.GAME_SCORE_MAX_POINTS_PER_HOUR,
+  });
+  if (error) throw new Error(`claim_game_score: ${error.message}`);
+  const parsed = parseRpcStatus(data);
+  if (!parsed) throw new Error("claim_game_score: unexpected response");
+  return parsed;
 }

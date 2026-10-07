@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getExternalSupabaseAdmin } from "@/integrations/external-supabase/admin.server";
 import { verifyTelegramInitData } from "./telegram-auth.server";
-import { canSeeStory } from "./story-visibility";
+import { canSeeStory, resolveStoryMedia } from "./story-visibility";
 
 // Never export this identity to client-reachable modules.
 const STORY_ADMIN_ID = 2143639881;
@@ -113,7 +113,7 @@ export async function readStories(input: unknown): Promise<StoriesResult> {
       check(
         await db
           .from("stories")
-          .select("id,media_type,media_url,link_url,created_at,expires_at,is_private")
+          .select("id,media_type,media_url,link_url,created_at,expires_at,is_private,media_path")
           .gt("expires_at", new Date().toISOString())
           .order("created_at", { ascending: true }),
       ) ?? [];
@@ -130,7 +130,7 @@ export async function readStories(input: unknown): Promise<StoriesResult> {
       );
       mine = new Set((rec ?? []).map((r) => String(r.story_id)));
     }
-    const rows = allRows.filter((r) =>
+    const visible = allRows.filter((r) =>
       canSeeStory({
         isPrivate: Boolean(r.is_private),
         userId,
@@ -138,6 +138,31 @@ export async function readStories(input: unknown): Promise<StoriesResult> {
         recipients: userId !== null && mine.has(String(r.id)) ? [userId] : [],
       }),
     );
+    // Private media: short-lived signed URL from the private bucket, or excluded.
+    const sign = async (path: string) => {
+      const { data } = await db.storage.from("stories-private").createSignedUrl(path, 7200);
+      return data?.signedUrl ?? null;
+    };
+    const resolved = await Promise.all(
+      visible.map(async (r) => ({
+        r,
+        url: await resolveStoryMedia(
+          {
+            isPrivate: Boolean(r.is_private),
+            mediaUrl: r.media_url ?? null,
+            mediaPath: r.media_path ?? null,
+          },
+          sign,
+        ),
+      })),
+    );
+    const media = new Map<string, string>();
+    const rows = resolved
+      .filter((x) => x.url !== null)
+      .map((x) => {
+        media.set(String(x.r.id), x.url as string);
+        return x.r;
+      });
     let seen = new Set<string>();
     let liked = new Set<string>();
     if (auth.ok && rows.length) {
@@ -161,7 +186,7 @@ export async function readStories(input: unknown): Promise<StoriesResult> {
       stories: rows.map((r) => ({
         id: String(r.id),
         media_type: r.media_type as Story["media_type"],
-        media_url: String(r.media_url),
+        media_url: media.get(String(r.id)) ?? "",
         link_url: safeStoryLink(r.link_url),
         created_at: String(r.created_at),
         expires_at: String(r.expires_at),
