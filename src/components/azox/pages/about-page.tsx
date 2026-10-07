@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Gamepad2, Brain, ShieldCheck, Wallet, Users, MessageSquare } from "lucide-react";
 import { SiSnapchat, SiThreads } from "react-icons/si";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import azoxLogo from "@/assets/azox/azox-logo.png.asset.json";
+import azoxLogo from "@/assets/azox/azox-uploaded-logo.png.asset.json";
 
 const FOUNDER_SOCIALS = [
   {

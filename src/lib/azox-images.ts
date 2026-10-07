@@ -6,7 +6,7 @@ import questionDayAsset from "@/assets/azox/question-day.png.asset.json";
 import shootAsset from "@/assets/azox/shoot.png.asset.json";
 import snakeAsset from "@/assets/azox/snake.png.asset.json";
 import takBomAsset from "@/assets/azox/tak-bom.png.asset.json";
-import tokenAsset from "@/assets/azox/token.png.asset.json";
+import tokenAsset from "@/assets/azox/azox-uploaded-logo.png.asset.json";
 import videoAdsAsset from "@/assets/azox/video-ads.png.asset.json";
 import xoAsset from "@/assets/azox/xo.png.asset.json";
 
