@@ -50,7 +50,10 @@ function groupMeta(label: string) {
 /** Telegram public group username, used for membership verification. */
 function telegramChat(url: string): string | undefined {
   const m = url.match(/t\.me\/([A-Za-z0-9_]+)/);
-  returnconst TASKS_TTL_MS = 5 * 60 * 1000;
+  return m?.[1];
+}
+
+const TASKS_TTL_MS = 5 * 60 * 1000;
 
 type TasksState = { groups: SocialTaskGroup[]; loading: boolean; error: string | null };
 
