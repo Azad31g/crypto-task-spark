@@ -22,3 +22,30 @@ describe("canSeeStory", () => {
     );
   });
 });
+
+import { resolveStoryMedia } from "./story-visibility";
+describe("resolveStoryMedia", () => {
+  const ok = async (p: string) => `https://signed/${p}`;
+  it("signs private stories", async () => {
+    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "", mediaPath: "a.jpg" }, ok)).toBe(
+      "https://signed/a.jpg",
+    );
+  });
+  it("excludes private on sign failure or missing path", async () => {
+    const bad = async () => null;
+    const boom = async (): Promise<string | null> => {
+      throw new Error("x");
+    };
+    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "https://pub", mediaPath: "a" }, bad)).toBeNull();
+    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "", mediaPath: "a" }, boom)).toBeNull();
+    expect(await resolveStoryMedia({ isPrivate: true, mediaUrl: "https://pub", mediaPath: null }, ok)).toBeNull();
+  });
+  it("leaves public stories untouched", async () => {
+    let called = false;
+    const spy = async () => ((called = true), "x");
+    expect(await resolveStoryMedia({ isPrivate: false, mediaUrl: "https://pub/x", mediaPath: null }, spy)).toBe(
+      "https://pub/x",
+    );
+    expect(called).toBe(false);
+  });
+});
