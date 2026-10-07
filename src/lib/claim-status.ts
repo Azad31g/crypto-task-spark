@@ -3,6 +3,8 @@ export type RpcClaimStatus = {
   status: string;
   points: number;
   rank: string | null;
+  unitsPaid?: number;
+  clipped?: boolean;
 };
 export type ClaimMapped =
   | { ok: true; granted: boolean; points: number; rank: string | null }
@@ -28,9 +30,13 @@ export function parseRpcStatus(data: unknown): RpcClaimStatus | null {
   const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
   if (!row || typeof row !== "object" || typeof row["status"] !== "string") return null;
   const points = Number(row["points"]);
-  return {
+  const out: RpcClaimStatus = {
     status: row["status"],
     points: Number.isFinite(points) ? points : 0,
     rank: typeof row["rank"] === "string" ? row["rank"] : null,
   };
+  const paid = Number(row["units_paid"]);
+  if (row["units_paid"] != null && Number.isFinite(paid)) out.unitsPaid = paid;
+  if (typeof row["clipped"] === "boolean") out.clipped = row["clipped"];
+  return out;
 }

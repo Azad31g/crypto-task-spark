@@ -199,16 +199,15 @@ export function utcDay(nowMs = Date.now()): string {
   return new Date(nowMs).toISOString().slice(0, 10);
 }
 
-/** Atomic Main Tap batch (row-locked; idempotent per batch id). */
+/** Atomic Main Tap batch (token bucket; idempotent per batch id). */
 export async function claimTapBatch(
   telegramId: number,
   batchId: string,
   units: number,
 ): Promise<RpcClaimStatus> {
   const { RANKS } = await import("./ranks");
-  const { TAP_MIN_INTERVAL_SECONDS } = await import("./rate-limits");
-  const { TAP_BATCH_MAX_UNITS } = await import("./tap-batch");
-  const { data, error } = await db().rpc("claim_tap_batch", {
+  const r = await import("./rate-limits");
+  const { data, error } = await db().rpc("claim_tap_batch_v2", {
     p_telegram_id: telegramId,
     p_batch_id: batchId,
     p_units: units,
@@ -217,12 +216,13 @@ export async function claimTapBatch(
       threshold,
       perFinger: pointsPerFinger,
     })),
-    p_min_interval_seconds: TAP_MIN_INTERVAL_SECONDS,
-    p_max_units: TAP_BATCH_MAX_UNITS,
+    p_capacity: r.TAP_BUCKET_CAPACITY,
+    p_refill_per_second: r.TAP_REFILL_PER_SECOND,
+    p_min_interval_seconds: r.TAP_MIN_INTERVAL_SECONDS,
   });
-  if (error) throw new Error(`claim_tap_batch: ${error.message}`);
+  if (error) throw new Error(`claim_tap_batch_v2: ${error.message}`);
   const parsed = parseRpcStatus(data);
-  if (!parsed) throw new Error("claim_tap_batch: unexpected response");
+  if (!parsed) throw new Error("claim_tap_batch_v2: unexpected response");
   return parsed;
 }
 

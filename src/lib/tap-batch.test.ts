@@ -7,6 +7,8 @@ import {
   parseTapState,
   takeBatch,
   takeInflightOnly,
+  shouldFlush,
+  TAP_MIN_CLIENT_SPACING_MS,
 } from "./tap-batch";
 
 let n = 0;
@@ -72,5 +74,13 @@ describe("tap batching", () => {
     const next = takeBatch(s, id);
     expect(next.batch!.units).toBe(3);
     expect(next.state.pending).toBe(0);
+  });
+
+  it("shouldFlush respects content and spacing", () => {
+    const S = TAP_MIN_CLIENT_SPACING_MS;
+    expect(shouldFlush(EMPTY_TAP_STATE, 100_000, 0)).toBe(false);
+    expect(shouldFlush({ pending: 2, inflight: null }, S, 0)).toBe(true);
+    expect(shouldFlush({ pending: 2, inflight: null }, S - 1, 0)).toBe(false);
+    expect(shouldFlush({ pending: 0, inflight: { id: "abcdefgh1", units: 1 } }, S, 0)).toBe(true);
   });
 });

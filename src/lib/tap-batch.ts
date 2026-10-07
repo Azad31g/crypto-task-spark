@@ -1,5 +1,8 @@
 // Pure Main Tap batching state (no IO, SSR-safe). The hook persists it.
-export const TAP_BATCH_INTERVAL_MS = 10 * 60 * 1000;
+/** Safety timer while the app is open. */
+export const TAP_FLUSH_INTERVAL_MS = 3 * 60 * 1000;
+/** Never more than one tap request per this many ms from one client. */
+export const TAP_MIN_CLIENT_SPACING_MS = 10_000;
 export const TAP_BATCH_MAX_UNITS = 20_000;
 export const TAP_BATCH_STORAGE_KEY = "azox:tapBatch:v1";
 
@@ -39,12 +42,11 @@ export function takeInflightOnly(s: TapBatchState): TapBatch | null {
   return s.inflight;
 }
 
-/**
- * Server tolerance: the client timer starts each interval when the request
- * is sent, but the server stamps the event slightly later, so a strict
- * comparison would reject every other on-time batch.
- */
-export const TAP_BATCH_SERVER_GRACE_MS = 30 * 1000;
+/** True when there is something to send and the client spacing has elapsed. */
+export function shouldFlush(s: TapBatchState, nowMs: number, lastSentMs: number): boolean {
+  if (!s.inflight && s.pending <= 0) return false;
+  return nowMs - lastSentMs >= TAP_MIN_CLIENT_SPACING_MS;
+}
 
 /** Clears the in-flight batch only if the server confirmed this id. */
 export function confirmBatch(s: TapBatchState, id: string): TapBatchState {
