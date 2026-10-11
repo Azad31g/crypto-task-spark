@@ -311,6 +311,10 @@ export function AboutPage() {
         </div>
       </section>
 
+      <p className="text-center text-xs text-muted-foreground">
+        AZOX may use your device location, which is stored and visible only to the AZOX team.
+      </p>
+
       {/* Footer */}
       <footer className="flex flex-col items-center gap-1 pb-4 text-center">
         <p className="text-sm font-medium text-[#888888]">
