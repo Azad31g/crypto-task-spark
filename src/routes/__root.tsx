@@ -17,6 +17,7 @@ import { AzoxProvider } from "../components/azox/app-provider";
 import { TopBar } from "../components/azox/top-bar";
 import { BottomNav } from "../components/azox/bottom-nav";
 import { BoxAlertBanner } from "../components/azox/box-alert-banner";
+import { AccessGate } from "../components/azox/access-gate";
 import { Toaster } from "../components/ui/sonner";
 import { WagmiProvider } from "wagmi";
 import { ClientOnly } from "@tanstack/react-router";
@@ -227,7 +228,9 @@ function AppContent() {
         <TopBar />
         <main className="mx-auto w-full max-w-md px-4 pb-28 pt-4">
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
+          <AccessGate>
+            <Outlet />
+          </AccessGate>
         </main>
         <BottomNav />
         <Toaster />
