@@ -98,13 +98,13 @@ export function openLocationSettings(): void {
   }
 }
 
-export function onLocationManagerUpdated(cb: () => void): () => void {
+export function onWebAppEvent(name: string, cb: () => void): () => void {
   try {
     const app = getWebApp() as unknown as WebAppExt | null;
-    app?.onEvent?.("locationManagerUpdated", cb);
+    app?.onEvent?.(name, cb);
     return () => {
       try {
-        app?.offEvent?.("locationManagerUpdated", cb);
+        app?.offEvent?.(name, cb);
       } catch {
         // ignore
       }
@@ -112,4 +112,8 @@ export function onLocationManagerUpdated(cb: () => void): () => void {
   } catch {
     return () => {};
   }
+}
+
+export function onLocationManagerUpdated(cb: () => void): () => void {
+  return onWebAppEvent("locationManagerUpdated", cb);
 }
