@@ -118,18 +118,25 @@ export function AccessGate({ children }: { children: ReactNode }) {
     active && resolved && decideGate({ policy, supported, locationOk }) === "blocked";
 
   // While blocked only: re-check silently on every return signal + a 2 s poll.
+  // The poll only runs while Telegram reports access NOT granted — when access
+  // is granted (e.g. GPS off), polling would re-open Android's own GPS dialog
+  // every 2 s if the user cancels it. Event-driven re-checks stay unconditional.
   useEffect(() => {
     if (!isBlocked) return;
     const recheck = () => {
       if (document.visibilityState === "hidden") return;
       void runLocation({ silent: true });
     };
+    const pollTick = () => {
+      if (getLocationState().granted) return;
+      recheck();
+    };
     const offActivated = onWebAppEvent("activated", recheck);
     const offUpdated = onWebAppEvent("locationManagerUpdated", recheck);
     window.addEventListener("focus", recheck);
     window.addEventListener("pageshow", recheck);
     document.addEventListener("visibilitychange", recheck);
-    const poll = setInterval(recheck, 2000);
+    const poll = setInterval(pollTick, 2000);
     return () => {
       clearInterval(poll);
       offActivated();
