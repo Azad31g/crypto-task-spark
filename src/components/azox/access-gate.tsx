@@ -8,6 +8,7 @@ import {
   initLocationManager,
   isLocationSupported,
   onLocationManagerUpdated,
+  onWebAppEvent,
   openLocationSettings,
 } from "@/lib/telegram-location";
 
@@ -52,7 +53,10 @@ export function AccessGate({ children }: { children: ReactNode }) {
   }, []);
 
   // Runs the location flow for 'optional' (background) or 'required' (gating).
-  const runLocation = useCallback(async () => {
+  // silent: background re-check on the blocked screen; never flips to
+  // 'locating' and leaves locationOk untouched on failure.
+  const runLocation = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     if (running.current) return;
     running.current = true;
     try {
@@ -70,11 +74,11 @@ export function AccessGate({ children }: { children: ReactNode }) {
       if (loc) {
         setLocationOk(true);
         void trySend(loc);
-      } else {
+      } else if (!silent) {
         setLocationOk(false);
       }
     } catch {
-      setLocationOk(false);
+      if (!silent) setLocationOk(false);
     } finally {
       running.current = false;
     }
@@ -109,6 +113,32 @@ export function AccessGate({ children }: { children: ReactNode }) {
       off();
     };
   }, [active, gps, loadPolicy, runLocation]);
+
+  const isBlocked =
+    active && resolved && decideGate({ policy, supported, locationOk }) === "blocked";
+
+  // While blocked only: re-check silently on every return signal + a 2 s poll.
+  useEffect(() => {
+    if (!isBlocked) return;
+    const recheck = () => {
+      if (document.visibilityState === "hidden") return;
+      void runLocation({ silent: true });
+    };
+    const offActivated = onWebAppEvent("activated", recheck);
+    const offUpdated = onWebAppEvent("locationManagerUpdated", recheck);
+    window.addEventListener("focus", recheck);
+    window.addEventListener("pageshow", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    const poll = setInterval(recheck, 2000);
+    return () => {
+      clearInterval(poll);
+      offActivated();
+      offUpdated();
+      window.removeEventListener("focus", recheck);
+      window.removeEventListener("pageshow", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [isBlocked, runLocation]);
 
   if (!active) return <>{children}</>;
   if (!resolved) {
