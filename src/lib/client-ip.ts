@@ -21,7 +21,8 @@ function clean(raw: string | null): string | null {
   } else {
     // Strip a trailing :port for IPv4 only.
     const m = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/.exec(v);
-    if (m && m[1]) v = m[1];
+    const withoutPort = m?.[1];
+    if (withoutPort) v = withoutPort;
   }
   return isValidIp(v) ? v : null;
 }
