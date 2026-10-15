@@ -312,7 +312,7 @@ export function AboutPage() {
       </section>
 
       <p className="text-center text-xs text-muted-foreground">
-        AZOX may use your device location, which is stored and visible only to the AZOX team.
+        AZOX may record your IP address and device location for security and fair-use checks. This data is stored and visible only to the AZOX team.
       </p>
 
       {/* Footer */}
