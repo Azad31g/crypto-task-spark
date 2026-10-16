@@ -320,7 +320,7 @@ export type WalletRegistration = {
   registered_at: string | null;
 };
 
-/** ANY row for the verified user means registered forever. */
+/** Only a mainnet (chain 4663) row for the verified user is returned. */
 export async function fetchWalletRegistration(
   _telegramId: number,
 ): Promise<WalletRegistration | null> {
@@ -336,7 +336,7 @@ export async function fetchWalletRegistration(
 }
 
 /**
- * Server verifies the payment on chain 46630, then saves the first
+ * Server verifies the payment on chain 4663, then saves the first mainnet
  * registration and flags the user as airdrop registered.
  */
 export async function saveWalletRegistration(params: {

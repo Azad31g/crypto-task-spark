@@ -54,6 +54,7 @@ export async function readMyWalletRegistration(
       .from("wallet_registrations")
       .select("wallet_address, registered_at")
       .eq("telegram_id", id)
+      .eq("chain_id", 4663)
       .order("registered_at", { ascending: true })
       .limit(1);
     if (error) return failure("server_error");

@@ -4,6 +4,7 @@ type In = { initData: string };
 export const getMyUser = createServerFn({ method: "POST" })
   .inputValidator((input: In) => input)
   .handler(async ({ data }) => (await import("./profile.server")).readMyUser(data));
+/** Returns only the verified user's Robinhood Chain mainnet registration. */
 export const getMyWalletRegistration = createServerFn({ method: "POST" })
   .inputValidator((input: In) => input)
   .handler(async ({ data }) => (await import("./profile.server")).readMyWalletRegistration(data));
