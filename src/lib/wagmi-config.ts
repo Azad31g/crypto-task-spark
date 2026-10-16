@@ -2,20 +2,19 @@ import { defineChain } from "viem";
 import { createConfig, http, type Config } from "wagmi";
 import type { AppKitNetwork } from "@reown/appkit/networks";
 
-export const robinhoodTestnet = defineChain({
-  id: 46630,
-  name: "Robinhood Chain Testnet",
+export const robinhoodMainnet = defineChain({
+  id: 4663,
+  name: "Robinhood Chain",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://rpc.testnet.chain.robinhood.com"] },
+    default: { http: ["https://rpc.mainnet.chain.robinhood.com"] },
   },
   blockExplorers: {
     default: {
       name: "Robinhood Explorer",
-      url: "https://explorer.testnet.chain.robinhood.com",
+      url: "https://robinhoodchain.blockscout.com",
     },
   },
-  testnet: true,
 });
 
 // WalletConnect / Reown Project IDs are publishable client identifiers.
@@ -32,7 +31,7 @@ export const APP_URL = "https://crypto-task-spark.lovable.app";
 export const TELEGRAM_APP_URL = "https://t.me/AZOX_Airdrop_bot/AZOX_Airdrop";
 
 export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [
-  robinhoodTestnet,
+  robinhoodMainnet,
 ];
 
 // SSR-safe, read-only wagmi config. It contains no connectors and imports
@@ -45,9 +44,9 @@ let ssrConfig: Config | undefined;
 export function getSsrWagmiConfig(): Config {
   if (!ssrConfig) {
     ssrConfig = createConfig({
-      chains: [robinhoodTestnet],
+      chains: [robinhoodMainnet],
       transports: {
-        [robinhoodTestnet.id]: http(robinhoodTestnet.rpcUrls.default.http[0]),
+        [robinhoodMainnet.id]: http(robinhoodMainnet.rpcUrls.default.http[0]),
       },
       ssr: true,
     });

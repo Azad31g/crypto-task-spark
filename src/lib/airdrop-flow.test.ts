@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyAirdropError, deriveAirdropPhase, isRegistrationConfirmed } from "./airdrop-flow";
 
-const CHAIN = 46630;
+const CHAIN = 4663;
 
 const base = {
   isConnected: true,
@@ -16,8 +16,12 @@ describe("deriveAirdropPhase", () => {
     expect(deriveAirdropPhase({ ...base, isConnected: false })).toBe("DISCONNECTED");
   });
 
-  it("is WRONG_NETWORK off chain 46630", () => {
+  it("is WRONG_NETWORK off chain 4663", () => {
     expect(deriveAirdropPhase({ ...base, chainId: 1 })).toBe("WRONG_NETWORK");
+  });
+
+  it("rejects the former chain 46630 even if its wallet was eligible", () => {
+    expect(deriveAirdropPhase({ ...base, chainId: 46630, isEligibleOnChain: true })).toBe("WRONG_NETWORK");
   });
 
   it("is CONNECTED before eligibility is known", () => {

@@ -502,8 +502,8 @@ async function verifySocialTask(telegramId: number, id: string): Promise<SocialC
 
 /* --------------------------- registerAirdropWallet ------------------------- */
 
-const CHAIN_ID = 46630;
-const RPC_URL = "https://rpc.testnet.chain.robinhood.com";
+const CHAIN_ID = 4663;
+const RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 
 export const registerAirdropWallet = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
@@ -524,12 +524,13 @@ export const registerAirdropWallet = createServerFn({ method: "POST" })
     try {
       const h = await helpers();
 
-      // First registration per telegram_id wins.
+      // First registration per telegram_id on this chain wins.
       const { data: existing } = await h
         .db()
         .from("wallet_registrations")
         .select("wallet_address, registered_at")
         .eq("telegram_id", telegramId)
+        .eq("chain_id", CHAIN_ID)
         .order("registered_at", { ascending: true })
         .limit(1);
       if (existing?.[0]) return { ok: true as const, registration: existing[0] };
@@ -558,8 +559,8 @@ export const registerAirdropWallet = createServerFn({ method: "POST" })
 
       // Reject if this tx or wallet already belongs to a different user.
       const [{ data: byTx }, { data: byWallet }] = await Promise.all([
-        h.db().from("wallet_registrations").select("telegram_id").ilike("payment_tx_hash", hash),
-        h.db().from("wallet_registrations").select("telegram_id").ilike("wallet_address", wallet),
+        h.db().from("wallet_registrations").select("telegram_id").eq("chain_id", CHAIN_ID).ilike("payment_tx_hash", hash),
+        h.db().from("wallet_registrations").select("telegram_id").eq("chain_id", CHAIN_ID).ilike("wallet_address", wallet),
       ]);
       const others = [...(byTx ?? []), ...(byWallet ?? [])].some(
         (r: { telegram_id: number }) => Number(r.telegram_id) !== telegramId,
@@ -589,6 +590,7 @@ export const registerAirdropWallet = createServerFn({ method: "POST" })
         .from("wallet_registrations")
         .select("wallet_address, registered_at")
         .eq("telegram_id", telegramId)
+        .eq("chain_id", CHAIN_ID)
         .order("registered_at", { ascending: true })
         .limit(1);
       return { ok: true as const, registration: saved?.[0] ?? null };

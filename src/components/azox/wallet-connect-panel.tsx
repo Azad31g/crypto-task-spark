@@ -29,7 +29,7 @@ export function WalletConnectPanel({ footer }: { footer?: ReactNode }) {
         className="inline-block rounded-full border px-2.5 py-1 text-[11px] font-semibold"
         style={{ color: ORANGE, borderColor: ORANGE }}
       >
-        Robinhood Chain Testnet
+        Robinhood Chain
       </span>
 
       <div className="flex justify-center">
