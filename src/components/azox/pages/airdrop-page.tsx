@@ -21,7 +21,7 @@ import {
   type WalletRegistration,
 } from "@/lib/azox-backend";
 import { AZOX_AIRDROP_ABI, AZOX_AIRDROP_ADDRESS, REGISTRATION_FEE } from "@/lib/contracts";
-import { robinhoodTestnet } from "@/lib/wagmi-config";
+import { robinhoodMainnet } from "@/lib/wagmi-config";
 import {
   classifyAirdropError,
   deriveAirdropPhase,
@@ -85,7 +85,7 @@ const STEPS = [
 const FAQ = [
   {
     q: "What is the AZOX Airdrop?",
-    a: "AZOX token distribution to early community members on Robinhood Chain Testnet.",
+    a: "AZOX token distribution to early community members on Robinhood Chain.",
   },
   {
     q: "Why is a fee required?",
@@ -93,7 +93,7 @@ const FAQ = [
   },
   {
     q: "Which network do I need?",
-    a: `Robinhood Chain Testnet (Chain ID ${robinhoodTestnet.id}).`,
+    a: `Robinhood Chain (Chain ID ${robinhoodMainnet.id}).`,
   },
   {
     q: "How many tokens will I receive?",
@@ -177,7 +177,7 @@ export function AirdropPage() {
 
   const { data: balance, refetch: refetchBalance } = useBalance({
     address,
-    chainId: robinhoodTestnet.id,
+    chainId: robinhoodMainnet.id,
     query: { enabled: Boolean(address) },
   });
 
@@ -186,7 +186,7 @@ export function AirdropPage() {
     abi: AZOX_AIRDROP_ABI,
     functionName: "isEligible",
     args: address ? [address] : undefined,
-    chainId: robinhoodTestnet.id,
+    chainId: robinhoodMainnet.id,
     query: { enabled: Boolean(address) },
   });
 
@@ -194,7 +194,7 @@ export function AirdropPage() {
     address: AZOX_AIRDROP_ADDRESS,
     abi: AZOX_AIRDROP_ABI,
     functionName: "totalRegistered",
-    chainId: robinhoodTestnet.id,
+    chainId: robinhoodMainnet.id,
   });
 
   const {
@@ -212,7 +212,7 @@ export function AirdropPage() {
   // prevents a double-submit from rapid taps on the Register button.
   const registrationInFlightRef = useRef(false);
 
-  const isWrongNetwork = isConnected && chainId !== robinhoodTestnet.id;
+  const isWrongNetwork = isConnected && chainId !== robinhoodMainnet.id;
   const hasEnoughBalance = Boolean(balance && balance.value >= REQUIRED_BALANCE);
   // ON-CHAIN STATE IS AUTHORITATIVE. A Supabase wallet_registrations row is
   // only a display hint while no wallet is connected — it must never suppress
@@ -226,7 +226,7 @@ export function AirdropPage() {
   const phase = deriveAirdropPhase({
     isConnected,
     chainId,
-    expectedChainId: robinhoodTestnet.id,
+    expectedChainId: robinhoodMainnet.id,
     isEligibleOnChain: address ? (isEligible as boolean | undefined) : undefined,
     activePhase,
   });
@@ -284,14 +284,14 @@ export function AirdropPage() {
 
       console.info("[airdrop] CONNECTED", { address, chainId });
 
-      if (chainId !== robinhoodTestnet.id) {
+      if (chainId !== robinhoodMainnet.id) {
         try {
           const switchedChain = await switchChainAsync({
-            chainId: robinhoodTestnet.id,
+            chainId: robinhoodMainnet.id,
           });
-          if (switchedChain.id !== robinhoodTestnet.id) {
+          if (switchedChain.id !== robinhoodMainnet.id) {
             throw new Error(
-              `Wrong network: expected chain ${robinhoodTestnet.id}, received ${switchedChain.id}`,
+              `Wrong network: expected chain ${robinhoodMainnet.id}, received ${switchedChain.id}`,
             );
           }
         } catch (error) {
@@ -343,7 +343,7 @@ export function AirdropPage() {
           abi: AZOX_AIRDROP_ABI,
           functionName: "register",
           value: REGISTRATION_FEE,
-          chainId: robinhoodTestnet.id,
+          chainId: robinhoodMainnet.id,
           account: address,
         });
       } catch (error) {
@@ -355,7 +355,7 @@ export function AirdropPage() {
       console.info("[airdrop] REQUESTING_TRANSACTION", {
         from: address,
         to: AZOX_AIRDROP_ADDRESS,
-        chainId: robinhoodTestnet.id,
+        chainId: robinhoodMainnet.id,
         valueWei: REGISTRATION_FEE.toString(),
         valueEth: formatEther(REGISTRATION_FEE),
       });
@@ -363,7 +363,7 @@ export function AirdropPage() {
         to: AZOX_AIRDROP_ADDRESS,
         data: registerData,
         value: REGISTRATION_FEE,
-        chainId: robinhoodTestnet.id,
+        chainId: robinhoodMainnet.id,
       });
 
       console.info("[airdrop] TRANSACTION_SUBMITTED", { hash });
@@ -371,7 +371,7 @@ export function AirdropPage() {
       setIsConfirming(true);
       const receipt = await waitForTransactionReceipt(wagmiConfig, {
         hash,
-        chainId: robinhoodTestnet.id,
+        chainId: robinhoodMainnet.id,
       });
       console.info("[airdrop] TRANSACTION_CONFIRMED", {
         hash,
@@ -455,8 +455,8 @@ export function AirdropPage() {
           AZOX Airdrop Registration
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Register once to qualify for AZOX token distribution on Robinhood Chain Testnet (Chain ID{" "}
-          {robinhoodTestnet.id})
+          Register once to qualify for AZOX token distribution on Robinhood Chain (Chain ID{" "}
+          {robinhoodMainnet.id})
         </p>
         {totalRegistered !== undefined && (
           <p className="mt-2 text-xs font-semibold" style={{ color: GREEN }}>
@@ -572,15 +572,15 @@ export function AirdropPage() {
               ⚠️ Wrong network detected
             </h2>
             <p className="text-xs text-muted-foreground">
-              Switch to Robinhood Chain Testnet to continue
+              Switch to Robinhood Chain to continue
             </p>
             <button
-              onClick={() => switchChain({ chainId: robinhoodTestnet.id })}
+              onClick={() => switchChain({ chainId: robinhoodMainnet.id })}
               disabled={isSwitching}
               className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-60"
               style={{ background: ORANGE }}
             >
-              {isSwitching ? "Switching…" : "Switch to Robinhood Testnet"}
+              {isSwitching ? "Switching…" : "Switch to Robinhood Chain"}
             </button>
           </div>
         )}
