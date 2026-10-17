@@ -19,10 +19,23 @@ import {
   getReferredUsers,
 } from "@/lib/profile.functions";
 import { PUBLIC_USER_COLUMNS, publicRowToDbUser, type PublicUserRow } from "@/lib/public-user";
+import { getDailyQuestions, type DailyQuestion } from "@/lib/question-day.functions";
 
 /** Raw signed Telegram initData — the only identity sent for writes. */
 export function rawInitData(): string | null {
   return getWebApp()?.initData || null;
+}
+
+/** Fresh verified questions for each Question Day opening; no shared cache. */
+export async function fetchDailyQuestions(): Promise<DailyQuestion[] | null> {
+  const initData = rawInitData();
+  if (!initData) return null;
+  try {
+    const result = await getDailyQuestions({ data: { initData } });
+    return result.ok ? result.questions : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The external project's user tables are not in the generated types. */

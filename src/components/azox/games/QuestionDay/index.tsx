@@ -5,78 +5,69 @@ import { useAzox } from "@/components/azox/app-provider";
 import { useGameTasks } from "@/hooks/useGameTasks";
 import { formatPoints } from "@/lib/azox-data";
 import { haptic } from "@/lib/telegram";
-
-type Question = {
-  id: number;
-  question: string;
-  options: string[];
-  correct: number;
-  difficulty: "easy" | "medium" | "hard";
-};
-
-const SAMPLE_QUESTIONS: Question[] = [
-  {
-    id: 1,
-    question: "Which blockchain introduced smart contracts to the mainstream?",
-    options: ["Bitcoin", "Ethereum", "Litecoin", "Dogecoin", "Monero"],
-    correct: 1,
-    difficulty: "easy",
-  },
-  {
-    id: 2,
-    question: "What does the abbreviation NFT stand for?",
-    options: [
-      "New Finance Token",
-      "Network File Transfer",
-      "Non-Fungible Token",
-      "Node Fee Tracker",
-      "Native Fiat Trade",
-    ],
-    correct: 2,
-    difficulty: "easy",
-  },
-  {
-    id: 3,
-    question:
-      "A wallet seed phrase is usually made of how many words in the most common standard?",
-    options: ["6 words", "8 words", "10 words", "12 words", "24 words only"],
-    correct: 3,
-    difficulty: "medium",
-  },
-  {
-    id: 4,
-    question:
-      "Which consensus mechanism does Ethereum use after The Merge upgrade completed in 2022?",
-    options: [
-      "Proof of Work",
-      "Proof of Stake",
-      "Proof of Authority",
-      "Proof of Burn",
-      "Proof of Space",
-    ],
-    correct: 1,
-    difficulty: "medium",
-  },
-  {
-    id: 5,
-    question: "In crypto slang, what does HODL usually describe?",
-    options: [
-      "Selling quickly on a pump",
-      "Holding an asset long term",
-      "Hedging with derivatives",
-      "Hardware only deep ledger",
-      "High order daily limit",
-    ],
-    correct: 1,
-    difficulty: "hard",
-  },
-];
+import { Button } from "@/components/ui/button";
+import { fetchDailyQuestions } from "@/lib/azox-backend";
+import type { DailyQuestion as Question } from "@/lib/question-day.functions";
 
 const SECONDS_PER_QUESTION = 60;
 const POINTS_PER_CORRECT = 100;
 const LETTERS = ["A", "B", "C", "D", "E"];
 
 export default function QuestionDay() {
+  const [questions, setQuestions] = useState<Question[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDailyQuestions().then((result) => {
+      if (cancelled) return;
+      setQuestions(result);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  if (questions) return <QuestionDayGame questions={questions} />;
+
+  return (
+    <div className="flex min-h-[80dvh] flex-col gap-4">
+      <header className="flex items-center gap-3">
+        <Link
+          to="/gaming"
+          aria-label="Back to gaming hub"
+          className="glass grid size-9 place-items-center rounded-xl text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+        </Link>
+        <h1 className="flex-1 text-lg font-black text-primary">AZOX Question Day</h1>
+      </header>
+      {loading ? (
+        <p role="status" className="text-center text-sm text-muted-foreground">
+          Loading questions…
+        </p>
+      ) : (
+        <div className="flex flex-col items-center gap-4 text-center">
+          <p role="alert" className="text-sm text-muted-foreground">
+            Today's questions are not available right now. Please try again later.
+          </p>
+          <Button
+            onClick={() => {
+              setLoading(true);
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuestionDayGame({ questions }: { questions: Question[] }) {
   const { points: accountPoints, addPoints } = useAzox();
   const { onQuestionComplete } = useGameTasks();
   const [index, setIndex] = useState(0);
@@ -87,19 +78,19 @@ export default function QuestionDay() {
   const completedRef = useRef(false);
   const correctIdxRef = useRef<number[]>([]);
 
-  const current = SAMPLE_QUESTIONS[index] ?? SAMPLE_QUESTIONS[0]!;
+  const current = questions[index] ?? questions[0];
 
   const next = useCallback(() => {
     setPicked(null);
     setTimeLeft(SECONDS_PER_QUESTION);
     setIndex((i) => {
-      if (i + 1 >= SAMPLE_QUESTIONS.length) {
+      if (i + 1 >= questions.length) {
         setDone(true);
         return i;
       }
       return i + 1;
     });
-  }, []);
+  }, [questions.length]);
 
   useEffect(() => {
     if (done || picked !== null) return;
@@ -125,11 +116,13 @@ export default function QuestionDay() {
     if (!done || completedRef.current) return;
     completedRef.current = true;
     const correctCount = Math.round(score / POINTS_PER_CORRECT);
-    const allCorrect = correctCount === SAMPLE_QUESTIONS.length;
+    const allCorrect = correctCount === questions.length;
     // ONE backend request for the whole session (browser decides correctness).
     addPoints(0, { type: "daily_batch", game: "question", indices: correctIdxRef.current });
     onQuestionComplete(allCorrect);
-  }, [done, score, onQuestionComplete, addPoints]);
+  }, [done, score, onQuestionComplete, addPoints, questions.length]);
+
+  if (!current) return null;
 
   const answer = (i: number) => {
     if (picked !== null || done) return;
@@ -206,7 +199,7 @@ export default function QuestionDay() {
         >
           <div className="flex items-center justify-between text-xs font-bold">
             <span className="text-muted-foreground">
-              Question {index + 1}/{SAMPLE_QUESTIONS.length}
+              Question {index + 1}/{questions.length}
             </span>
             <span
               className="flex items-center gap-1.5 font-mono tabular-nums"
@@ -222,7 +215,7 @@ export default function QuestionDay() {
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
-                width: `${((index + 1) / SAMPLE_QUESTIONS.length) * 100}%`,
+                width: `${((index + 1) / questions.length) * 100}%`,
                 background: "#22c55e",
               }}
             />
@@ -240,7 +233,7 @@ export default function QuestionDay() {
           <div className="flex flex-col gap-2.5">
             {current.options.map((opt, i) => (
               <button
-                key={opt}
+                key={i}
                 type="button"
                 onClick={() => answer(i)}
                 disabled={picked !== null}
