@@ -15,6 +15,7 @@ vi.mock("@tanstack/react-start", () => ({
   }),
 }));
 vi.mock("./telegram-auth.server", () => ({ verifyTelegramInitData: mocks.verify }));
+vi.mock("./game-switches.server", () => ({ isGameEnabled: async () => true }));
 vi.mock("./azox-secure.server", () => ({
   db: () => ({ rpc: mocks.rpc }),
   utcDay: mocks.utcDay,

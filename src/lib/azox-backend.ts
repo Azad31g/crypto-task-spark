@@ -20,6 +20,29 @@ import {
 } from "@/lib/profile.functions";
 import { PUBLIC_USER_COLUMNS, publicRowToDbUser, type PublicUserRow } from "@/lib/public-user";
 import { getDailyQuestions, type DailyQuestion } from "@/lib/question-day.functions";
+import { getGameSwitches } from "@/lib/game-switches.functions";
+import { GAME_DISABLED, allGamesOn, type GameSwitches } from "@/lib/game-switches";
+
+/** Browser event fired when the server refuses a game call because it is paused. */
+export const GAME_DISABLED_EVENT = "azox:game-disabled";
+
+function noteGameDisabled(error: unknown): void {
+  if (error === GAME_DISABLED && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(GAME_DISABLED_EVENT));
+  }
+}
+
+/** Admin game switches; all ON on any failure. */
+export async function fetchGameSwitches(): Promise<GameSwitches> {
+  const initData = rawInitData();
+  if (!initData) return allGamesOn();
+  try {
+    const res = await getGameSwitches({ data: { initData } });
+    return res.ok ? res.switches : allGamesOn();
+  } catch {
+    return allGamesOn();
+  }
+}
 
 /** Raw signed Telegram initData — the only identity sent for writes. */
 export function rawInitData(): string | null {
@@ -141,6 +164,7 @@ async function doClaimReward(claim: RewardClaim): Promise<number | null> {
           : await claimRewardFn({ data: { initData, claim } });
     if (res.ok) return res.points;
     console.warn("[azox-backend] reward rejected:", claim.type, res.error);
+    noteGameDisabled(res.error);
   } catch (e) {
     console.error("[azox-backend] reward failed", e);
   }
@@ -220,6 +244,7 @@ export async function recordTaskUnits(kind: TaskUnitKind): Promise<number> {
     const res = await recordTaskUnitsFn({ data: { initData, kind } });
     if (res.ok) return res.added;
     console.warn("[azox-backend] recordTaskUnits rejected:", res.error);
+    noteGameDisabled(res.error);
   } catch (e) {
     console.error("[azox-backend] recordTaskUnits failed", e);
   }
@@ -253,6 +278,7 @@ export async function submitGameScoreRemote(gameId: ScoreGame, score: number): P
     const res = await submitGameScoreFn({ data: { initData, gameId, score } });
     if (res.ok) return res.earnedTasks;
     console.warn("[azox-backend] submitGameScore rejected:", res.error);
+    noteGameDisabled(res.error);
   } catch (e) {
     console.error("[azox-backend] submitGameScore failed", e);
   }

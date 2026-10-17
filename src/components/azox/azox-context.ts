@@ -3,6 +3,7 @@ import type { AzoxUser } from "@/hooks/useUser";
 import type { DbUser } from "@/lib/azox-backend";
 import type { Rank } from "@/lib/azox-data";
 import type { RewardClaim } from "@/lib/rewards";
+import type { GameId, GameSwitches } from "@/lib/game-switches";
 
 export type AzoxState = {
   user: AzoxUser;
@@ -23,6 +24,9 @@ export type AzoxState = {
   isBoxOpen: boolean;
   boxSecondsRemaining: number;
   boxAlreadyOpened: boolean;
+  gameSwitches: GameSwitches;
+  isGameEnabled: (id: GameId) => boolean;
+  refreshGameSwitches: () => void;
 };
 
 export const AzoxContext = createContext<AzoxState | null>(null);
