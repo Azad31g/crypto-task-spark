@@ -53,8 +53,7 @@ export function AzoxProvider({ children }: { children: ReactNode }) {
     },
     [rawAddPoints, gameSwitches],
   );
-  const { completedTasks, completeTask, dailyClaimed, claimDaily } =
-    useTasks(addPoints);
+  const { completedTasks, completeTask, dailyClaimed, claimDaily } = useTasks(addPoints);
   const boxAlert = useBoxAlert();
 
   const value = useMemo<AzoxState>(
@@ -105,4 +104,3 @@ export function AzoxProvider({ children }: { children: ReactNode }) {
 
   return <AzoxContext.Provider value={value}>{children}</AzoxContext.Provider>;
 }
-

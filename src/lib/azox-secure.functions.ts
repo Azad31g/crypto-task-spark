@@ -585,8 +585,18 @@ export const registerAirdropWallet = createServerFn({ method: "POST" })
 
       // Reject if this tx or wallet already belongs to a different user.
       const [{ data: byTx }, { data: byWallet }] = await Promise.all([
-        h.db().from("wallet_registrations").select("telegram_id").eq("chain_id", CHAIN_ID).ilike("payment_tx_hash", hash),
-        h.db().from("wallet_registrations").select("telegram_id").eq("chain_id", CHAIN_ID).ilike("wallet_address", wallet),
+        h
+          .db()
+          .from("wallet_registrations")
+          .select("telegram_id")
+          .eq("chain_id", CHAIN_ID)
+          .ilike("payment_tx_hash", hash),
+        h
+          .db()
+          .from("wallet_registrations")
+          .select("telegram_id")
+          .eq("chain_id", CHAIN_ID)
+          .ilike("wallet_address", wallet),
       ]);
       const others = [...(byTx ?? []), ...(byWallet ?? [])].some(
         (r: { telegram_id: number }) => Number(r.telegram_id) !== telegramId,

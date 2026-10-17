@@ -41,35 +41,31 @@ export function GamingPage() {
                     className="size-full rounded-2xl object-contain grayscale"
                   />
                 </div>
-                <span className="line-clamp-2 text-xs font-semibold leading-snug">
-                  {game.name}
-                </span>
+                <span className="line-clamp-2 text-xs font-semibold leading-snug">{game.name}</span>
               </div>
             );
           }
           return (
-          <Link
-            key={game.id}
-            to="/games/$game"
-            params={{ game: game.id }}
-            className="glass group flex flex-col items-center gap-3 rounded-2xl p-4 text-center transition-transform active:scale-95 hover:border-accent/40"
-          >
-            <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-3xl border border-border bg-secondary/40 p-3">
-              <span className="absolute right-2 top-2 rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                {game.tag}
-              </span>
-              <img
-                src={game.image}
-                alt={game.name}
-                width={120}
-                height={120}
-                className="size-full rounded-2xl object-contain transition-transform duration-200 group-hover:scale-105"
-              />
-            </div>
-            <span className="line-clamp-2 text-xs font-semibold leading-snug">
-              {game.name}
-            </span>
-          </Link>
+            <Link
+              key={game.id}
+              to="/games/$game"
+              params={{ game: game.id }}
+              className="glass group flex flex-col items-center gap-3 rounded-2xl p-4 text-center transition-transform active:scale-95 hover:border-accent/40"
+            >
+              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-3xl border border-border bg-secondary/40 p-3">
+                <span className="absolute right-2 top-2 rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                  {game.tag}
+                </span>
+                <img
+                  src={game.image}
+                  alt={game.name}
+                  width={120}
+                  height={120}
+                  className="size-full rounded-2xl object-contain transition-transform duration-200 group-hover:scale-105"
+                />
+              </div>
+              <span className="line-clamp-2 text-xs font-semibold leading-snug">{game.name}</span>
+            </Link>
           );
         })}
       </div>
@@ -80,9 +76,7 @@ export function GamingPage() {
       >
         <div>
           <p className="text-sm font-bold">Global Leaderboard</p>
-          <p className="text-xs text-muted-foreground">
-            See where you rank worldwide
-          </p>
+          <p className="text-xs text-muted-foreground">See where you rank worldwide</p>
         </div>
         <ChevronRight className="size-5 text-gold" aria-hidden="true" />
       </Link>

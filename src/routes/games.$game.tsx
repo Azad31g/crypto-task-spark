@@ -1,9 +1,5 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import {
-  GAME_TITLES,
-  GameScreen,
-  resolveGameId,
-} from "@/components/azox/games/game-screen";
+import { GAME_TITLES, GameScreen, resolveGameId } from "@/components/azox/games/game-screen";
 import AzoxWord from "@/components/azox/games/VideoAds";
 import AzoxBox from "@/components/azox/games/AzoxBox";
 import ClickerFrenzy from "@/components/azox/games/ClickerFrenzy";
@@ -34,7 +30,6 @@ function PausedScreen() {
   );
 }
 
-
 export const Route = createFileRoute("/games/$game")({
   loader: ({ params }) => {
     const game = resolveGameId(params.game);
@@ -44,10 +39,7 @@ export const Route = createFileRoute("/games/$game")({
   head: ({ loaderData }) => {
     if (!loaderData) {
       return {
-        meta: [
-          { title: "Game unavailable — AZOX" },
-          { name: "robots", content: "noindex" },
-        ],
+        meta: [{ title: "Game unavailable — AZOX" }, { name: "robots", content: "noindex" }],
       };
     }
     const title = `${GAME_TITLES[loaderData.game]} — AZOX Gaming`;
@@ -83,9 +75,11 @@ function GameRoute() {
   const switchId = toSwitchId(game);
   if (switchId && !isGameEnabled(switchId)) return <PausedScreen />;
   if (game === "shoot") {
-    return <ShootGame onGameOver={(score) =>
-          addPoints(score, { type: "game_score", gameId: "shoot", score })
-        } />;
+    return (
+      <ShootGame
+        onGameOver={(score) => addPoints(score, { type: "game_score", gameId: "shoot", score })}
+      />
+    );
   }
   if (game === "snake") {
     return <SnakeGame />;
