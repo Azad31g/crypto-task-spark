@@ -14,3 +14,4 @@
 - Stories use dedicated stories.functions.ts wrappers and stories.server.ts helpers with verified Telegram identity for engagement and server-only admin authorization; why: the existing story tables are service-role-only and audience data must never reach ordinary users.
 - Wallet registration reads and conflict checks must always filter by the active airdrop chain; why: historical registrations on other chains cannot establish eligibility or ownership conflicts.
 - Vitest uses its own configuration without the app's server-RPC transform; why: handler unit tests must execute verified server logic directly rather than generated transport stubs.
+- Question Day reads daily questions through question-day.functions.ts after Telegram verification using the existing server-only db/utcDay helpers; why: restricted questions stay behind verified server access and use the same UTC day as rewards.
