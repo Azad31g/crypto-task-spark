@@ -30,6 +30,9 @@ export const getDailyQuestions = createServerFn({ method: "POST" })
       const verified = await verifyTelegramInitData(data.initData);
       if (!verified.ok) return unavailable(`verification failed: ${verified.error}`);
 
+      const { isGameEnabled } = await import("./game-switches.server");
+      if (!(await isGameEnabled("question-day"))) return unavailable("game disabled");
+
       const { db, utcDay } = await import("./azox-secure.server");
       const { data: result, error } = await db().rpc("get_daily_questions", {
         p_day: utcDay(),

@@ -49,6 +49,7 @@ export type SecureError =
   | "cooldown"
   | "capped"
   | "busy"
+  | "game_disabled"
   | "server_error";
 
 type Fail = { ok: false; error: SecureError; message?: string };
@@ -60,6 +61,15 @@ async function auth(raw: string) {
 
 async function helpers() {
   return import("./azox-secure.server");
+}
+
+/** Admin game switch gate; fail-open when the switch cannot be read. */
+async function gameOff(game: string): Promise<boolean> {
+  const { toSwitchId } = await import("./game-switches");
+  const id = toSwitchId(game);
+  if (!id) return false;
+  const { isGameEnabled } = await import("./game-switches.server");
+  return !(await isGameEnabled(id));
 }
 
 function fail(error: SecureError, e?: unknown): Fail {
@@ -180,6 +190,15 @@ export const claimReward = createServerFn({ method: "POST" })
     if (!a.ok) return fail(a.error);
     const id = a.user.id;
     const c = data.claim;
+    const gameForClaim =
+      c.type === "box_open"
+        ? "box"
+        : c.type === "clicker_round"
+          ? "clicker"
+          : c.type === "game_score"
+            ? c.gameId
+            : null;
+    if (gameForClaim && (await gameOff(gameForClaim))) return fail("game_disabled");
     try {
       const h = await helpers();
       const day = h.utcDay();
@@ -258,6 +277,7 @@ export const completeDailyGame = createServerFn({ method: "POST" })
     const { normalizeIndices, runDailyBatch } = await import("./daily-batch");
     const indices = normalizeIndices(data.game, data.indices);
     if (!indices) return fail("invalid");
+    if (await gameOff(data.game)) return fail("game_disabled");
     const id = a.user.id;
     try {
       const h = await helpers();
@@ -311,6 +331,10 @@ export const recordTaskUnits = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const a = await auth(data.initData);
     if (!a.ok) return fail(a.error);
+    const unitGame = { word_complete: "word", box_open: "box", question_complete: "question" }[
+      data.kind as string
+    ];
+    if (unitGame && (await gameOff(unitGame))) return fail("game_disabled");
     try {
       const h = await helpers();
       const id = a.user.id;
@@ -386,6 +410,7 @@ export const submitGameScore = createServerFn({ method: "POST" })
     const a = await auth(data.initData);
     if (!a.ok) return fail(a.error);
     const id = a.user.id;
+    if (await gameOff(data.gameId)) return fail("game_disabled");
     try {
       const h = await helpers();
       const { data: isRecord, error } = await h.db().rpc("submit_global_best", {
@@ -426,6 +451,7 @@ export const globalButtonPress = createServerFn({ method: "POST" })
     const a = await auth(data.initData);
     if (!a.ok) return fail(a.error);
     const id = a.user.id;
+    if (await gameOff("global-button")) return fail("game_disabled");
     const now = Date.now();
     const slot = Math.floor(now / GLOBAL_BUTTON_SLOT_MS) * GLOBAL_BUTTON_SLOT_MS;
     if (now - slot >= GLOBAL_BUTTON_ACTIVE_MS) return fail("window_closed");
