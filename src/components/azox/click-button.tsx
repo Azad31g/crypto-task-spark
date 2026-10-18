@@ -56,7 +56,7 @@ export function ClickButton() {
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="relative">
-        <span className="pointer-events-none absolute inset-0 animate-azox-pulse-ring rounded-full bg-[#22c55e]/25" />
+        <span className="pointer-events-none absolute inset-0 animate-azox-pulse-ring rounded-full bg-[#FF7A18]/25" />
         <button
           ref={btnRef}
           type="button"
@@ -80,7 +80,7 @@ export function ClickButton() {
           }}
           onMouseUp={() => setPressed(false)}
           onMouseLeave={() => setPressed(false)}
-          className="relative grid size-56 select-none place-items-center rounded-full border border-[#22c55e]/60 bg-gradient-to-b from-[#22c55e]/25 to-[#22c55e]/5 shadow-[0_0_0_1px_rgba(34,197,94,0.5),0_0_40px_rgba(34,197,94,0.55),0_0_90px_rgba(34,197,94,0.35)] transition-transform duration-100 active:scale-95"
+          className="relative grid size-56 select-none place-items-center rounded-full border border-[#FF7A18]/60 bg-gradient-to-b from-[#FF7A18]/25 to-[#FF7A18]/5 shadow-[0_0_0_1px_rgba(255,122,24,0.5),0_0_40px_rgba(255,122,24,0.55),0_0_90px_rgba(255,122,24,0.35)] transition-transform duration-100 active:scale-95"
           style={{ transform: pressed ? "scale(0.95)" : undefined }}
         >
           <span className="absolute inset-3 rounded-full border border-white/10 bg-card/60" />
@@ -89,7 +89,7 @@ export function ClickButton() {
             alt="AZOX"
             width={150}
             height={150}
-            className="relative size-32 rounded-[30px] object-contain drop-shadow-[0_0_24px_rgba(163,230,53,0.6)]"
+            className="relative size-32 rounded-[30px] object-contain drop-shadow-[0_0_24px_rgba(255,122,24,0.6)]"
             draggable={false}
           />
 
